@@ -1,0 +1,127 @@
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+function getToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('token');
+}
+
+export async function api<T>(
+  path: string,
+  options: RequestInit & { params?: Record<string, string> } = {}
+): Promise<T> {
+  const { params, ...rest } = options;
+  let url = `${API_BASE}${path}`;
+  if (params && Object.keys(params).length > 0) {
+    const search = new URLSearchParams(params).toString();
+    url += (path.includes('?') ? '&' : '?') + search;
+  }
+  const token = getToken();
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(rest.headers as Record<string, string>),
+  };
+  if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(url, { ...rest, headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message || 'Error en la solicitud');
+  }
+  return res.json();
+}
+
+export const authApi = {
+  login: (username: string, password: string) =>
+    api<{ access_token: string; user: { id: string; username: string; role: string; companyId: string | null } }>(
+      '/auth/login',
+      { method: 'POST', body: JSON.stringify({ username, password }) }
+    ),
+  me: () =>
+    api<{
+      id: string;
+      username: string;
+      role: string;
+      companyId: string | null;
+      company: { id: string; name: string } | null;
+    }>('/auth/me'),
+};
+
+export const companiesApi = {
+  list: () => api<Array<{ id: string; name: string }>>('/companies'),
+  get: (id: string) => api<unknown>(`/companies/${id}`),
+  create: (data: { name: string; address?: string; rif?: string }) =>
+    api<unknown>('/companies', { method: 'POST', body: JSON.stringify(data) }),
+};
+
+export const configApi = {
+  get: (companyId: string) => api<unknown>(`/config/company/${companyId}`),
+  update: (companyId: string, data: Record<string, unknown>) =>
+    api<unknown>(`/config/company/${companyId}`, { method: 'PUT', body: JSON.stringify(data) }),
+};
+
+export const clientsApi = {
+  search: (companyId: string, rifCedula: string) =>
+    api<unknown | null>('/clients/search', { params: { companyId, rifCedula } }),
+  list: (companyId: string, page?: number, limit?: number, search?: string) =>
+    api<{ items: unknown[]; total: number }>('/clients', {
+      params: { companyId, ...(page && { page: String(page) }), ...(limit && { limit: String(limit) }), ...(search && { search }) },
+    }),
+  get: (id: string, companyId: string) => api<unknown>(`/clients/${id}`, { params: { companyId } }),
+  create: (companyId: string, data: Record<string, unknown>) =>
+    api<unknown>('/clients', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  update: (id: string, companyId: string, data: Record<string, unknown>) =>
+    api<unknown>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data), params: { companyId } }),
+};
+
+export const productsApi = {
+  search: (companyId: string, q: string) =>
+    api<unknown[]>('/products/search', { params: { companyId, q } }),
+  list: (companyId: string, page?: number, limit?: number, code?: string, name?: string, from?: string) =>
+    api<{ items: unknown[]; total: number }>('/products', {
+      params: { companyId, ...(page && { page: String(page) }), ...(limit && { limit: String(limit) }), ...(code && { code }), ...(name && { name }), ...(from && { from }) },
+    }),
+  get: (id: string, companyId: string) => api<unknown>(`/products/${id}`, { params: { companyId } }),
+  create: (companyId: string, data: { code: string; name: string; description?: string }) =>
+    api<unknown>('/products', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  delete: (id: string, companyId: string) =>
+    api<unknown>(`/products/${id}`, { method: 'DELETE', params: { companyId } }),
+};
+
+export const budgetsApi = {
+  list: (companyId: string, filters?: Record<string, string | number>) =>
+    api<{ items: unknown[]; total: number }>('/budgets', { params: { companyId, ...(filters as Record<string, string>) } }),
+  get: (id: string, companyId: string) => api<unknown>(`/budgets/${id}`, { params: { companyId } }),
+  create: (companyId: string, data: unknown) =>
+    api<unknown>('/budgets', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  update: (id: string, companyId: string, data: unknown) =>
+    api<unknown>(`/budgets/${id}`, { method: 'PUT', body: JSON.stringify(data), params: { companyId } }),
+  delete: (id: string, companyId: string) =>
+    api<unknown>(`/budgets/${id}`, { method: 'DELETE', params: { companyId } }),
+  duplicate: (id: string, companyId: string) =>
+    api<unknown>(`/budgets/${id}/duplicate`, { method: 'POST', params: { companyId } }),
+};
+
+export const invoicesApi = {
+  list: (companyId: string, filters?: Record<string, string>) =>
+    api<{ items: unknown[]; total: number }>('/invoices', { params: { companyId, ...filters } }),
+  get: (id: string, companyId: string) => api<unknown>(`/invoices/${id}`, { params: { companyId } }),
+  createFromBudget: (companyId: string, budgetId: string) =>
+    api<unknown>('/invoices/from-budget', { method: 'POST', body: JSON.stringify({ budgetId }), params: { companyId } }),
+  create: (companyId: string, data: unknown) =>
+    api<unknown>('/invoices', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+};
+
+export const inventoryApi = {
+  ingress: (companyId: string, data: { productId: string; quantity: number; unitCost?: number; salePrice?: number; observation?: string }) =>
+    api<unknown>('/inventory/ingress', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  egress: (companyId: string, data: { productId: string; quantity: number; reason: string; observation?: string }) =>
+    api<unknown>('/inventory/egress', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  movements: (companyId: string, productId: string, filters?: Record<string, string>) =>
+    api<{ items: unknown[]; total: number }>(`/inventory/movements/${productId}`, { params: { companyId, ...filters } }),
+};
+
+export const logsApi = {
+  list: (filters?: { companyId?: string; userId?: string; action?: string; from?: string; to?: string; page?: number; limit?: number }) =>
+    api<{ items: unknown[]; total: number }>('/logs', {
+      params: filters as Record<string, string>,
+    }),
+};
