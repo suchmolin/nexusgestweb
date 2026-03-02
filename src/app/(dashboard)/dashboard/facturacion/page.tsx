@@ -19,7 +19,7 @@ export default function FacturacionPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const companyId = user ? getCompanyId(user, selectedCompanyId) : null;
 
-  const [tab, setTab] = useState<'from-budget' | 'new' | 'list'>('list');
+  const [tab, setTab] = useState<'from-budget' | 'new' | 'list'>('new');
 
   const [budgets, setBudgets] = useState<{ items: any[]; total: number }>({ items: [], total: 0 });
   const [budgetPage, setBudgetPage] = useState(1);
@@ -173,23 +173,30 @@ export default function FacturacionPage() {
   };
 
   const handleSubmitInvoice = async () => {
-    if (!companyId || !selectedClientId || !title.trim()) { setErrorInvoice('Título y cliente son obligatorios.'); return; }
+    if (!companyId || !selectedClientId) { setErrorInvoice('Cliente es obligatorio.'); return; }
     if (items.length === 0) { setErrorInvoice('Agrega al menos un producto.'); return; }
-    if (!rateOfDay.trim() || isNaN(Number(rateOfDay))) { setErrorInvoice('Tasa del día es obligatoria.'); return; }
+    const invFieldConfig = config?.invoiceFieldsConfig ?? {};
+    const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
+    const invRequired = (key: string) => invFieldConfig[key]?.required === true;
+    if (invVisible('title') && !title.trim()) { setErrorInvoice('Título es obligatorio.'); return; }
+    if (invVisible('rateOfDay') && (!rateOfDay.trim() || isNaN(Number(rateOfDay)))) { setErrorInvoice('Tasa del día es obligatoria.'); return; }
+    if (invVisible('paymentMethods') && invRequired('paymentMethods') && paymentMethods.length === 0) { setErrorInvoice('Forma de pago es obligatoria.'); return; }
     setSavingInvoice(true); setErrorInvoice('');
     try {
+      const invFieldConfig = config?.invoiceFieldsConfig ?? {};
+      const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
       await invoicesApi.create(companyId, {
-        title: title.trim(),
+        title: (invVisible('title') ? title.trim() : '') || 'Factura',
         clientId: selectedClientId,
         date: new Date().toISOString().slice(0, 10),
         ivaPercent,
-        rateOfDay: Number(rateOfDay),
+        rateOfDay: invVisible('rateOfDay') ? Number(rateOfDay) : (Number(rateOfDay) || config?.usdRate || 1),
         currencies,
-        observations: observations.trim() || undefined,
-        priority,
-        paymentMethods,
-        deliveryTime: deliveryTime.trim() || undefined,
-        validity: validity.trim() || undefined,
+        observations: invVisible('observations') ? observations.trim() || undefined : undefined,
+        priority: invVisible('priority') ? priority : 'NORMAL',
+        paymentMethods: invVisible('paymentMethods') ? paymentMethods : [],
+        deliveryTime: invVisible('deliveryTime') ? deliveryTime.trim() || undefined : undefined,
+        validity: invVisible('validity') ? validity.trim() || undefined : undefined,
         items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder })),
       });
       setTab('list'); loadInvoices();
@@ -257,17 +264,17 @@ export default function FacturacionPage() {
           <div className="flex gap-2 mt-6 border-b border-[var(--border)] flex-wrap">
             <button
               type="button"
+              onClick={() => setTab('new')}
+              className={`px-4 py-2 font-medium ${tab === 'new' ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}
+            >
+              Nueva factura
+            </button>
+            <button
+              type="button"
               onClick={() => { setTab('from-budget'); setSelectedBudget(null); }}
               className={`px-4 py-2 font-medium ${tab === 'from-budget' ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}
             >
               Desde presupuesto
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('new')}
-              className={`px-4 py-2 font-medium ${tab === 'new' ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}
-            >
-              Factura nueva
             </button>
             <button
               type="button"
@@ -353,10 +360,12 @@ export default function FacturacionPage() {
                 </div>
                 <p className="text-[var(--muted)] mt-2 text-xs">Fecha: {new Date().toISOString().slice(0, 10)} — Correlativo de factura (generado automáticamente)</p>
               </section>
+              {(config?.invoiceFieldsConfig ?? {})['title']?.visible !== false && (
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Título de la factura</h2>
                 <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Título" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
               </section>
+              )}
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Cliente</h2>
                 <div className="flex gap-2 flex-wrap">
@@ -409,13 +418,25 @@ export default function FacturacionPage() {
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Información general</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm text-[var(--muted)] mb-1">IVA (%)</label><input type="number" min={0} step={0.01} value={ivaPercent} onChange={(e) => setIvaPercent(Number(e.target.value))} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" /></div>
+                  {(config?.invoiceFieldsConfig ?? {})['rateOfDay']?.visible !== false && (
                   <div><label className="block text-sm text-[var(--muted)] mb-1">Tasa del día</label><input value={rateOfDay} onChange={(e) => setRateOfDay(e.target.value)} placeholder="Ej: 36.5" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" /></div>
+                  )}
                   <div><label className="block text-sm text-[var(--muted)] mb-1">Moneda(s)</label><div className="flex gap-2 flex-wrap">{CURRENCY_OPTIONS.map((c) => (<label key={c} className="flex items-center gap-1"><input type="checkbox" checked={currencies.includes(c)} onChange={() => toggleCurrency(c)} /><span>{c}</span></label>))}</div><p className="text-xs text-[var(--muted)]">Máx. 2; no USD y EUR a la vez.</p></div>
+                  {(config?.invoiceFieldsConfig ?? {})['priority']?.visible !== false && (
                   <div><label className="block text-sm text-[var(--muted)] mb-1">Prioridad</label><select value={priority} onChange={(e) => setPriority(e.target.value as 'NORMAL' | 'URGENT')} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2"><option value="NORMAL">Normal</option><option value="URGENT">Urgente</option></select></div>
+                  )}
+                  {(config?.invoiceFieldsConfig ?? {})['paymentMethods']?.visible !== false && (
                   <div className="md:col-span-2"><label className="block text-sm text-[var(--muted)] mb-1">Forma de pago</label><div className="flex flex-wrap gap-2">{PAYMENT_OPTIONS.map((p) => (<label key={p} className="flex items-center gap-1"><input type="checkbox" checked={paymentMethods.includes(p)} onChange={() => togglePayment(p)} /><span>{p.replace('_', ' ')}</span></label>))}</div></div>
+                  )}
+                  {(config?.invoiceFieldsConfig ?? {})['deliveryTime']?.visible !== false && (
                   <div><label className="block text-sm text-[var(--muted)] mb-1">Tiempo de entrega</label><input value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" /></div>
+                  )}
+                  {(config?.invoiceFieldsConfig ?? {})['validity']?.visible !== false && (
                   <div><label className="block text-sm text-[var(--muted)] mb-1">Validez</label><input value={validity} onChange={(e) => setValidity(e.target.value)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" /></div>
+                  )}
+                  {(config?.invoiceFieldsConfig ?? {})['observations']?.visible !== false && (
                   <div className="md:col-span-2"><label className="block text-sm text-[var(--muted)] mb-1">Observaciones</label><textarea value={observations} onChange={(e) => setObservations(e.target.value)} rows={2} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" /></div>
+                  )}
                 </div>
               </section>
               {errorInvoice && <p className="text-[var(--destructive)]">{errorInvoice}</p>}

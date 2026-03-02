@@ -24,7 +24,7 @@ export default function ClientesPage() {
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [rifCedulaSearch, setRifCedulaSearch] = useState('');
-  const [searchResult, setSearchResult] = useState<Client | null | 'loading'>(null);
+  const [searchResult, setSearchResult] = useState<Client | null | 'loading' | 'not-found'>(null);
   const [form, setForm] = useState<Partial<Client>>({
     name: '',
     address: '',
@@ -68,8 +68,8 @@ export default function ClientesPage() {
     setError('');
     try {
       const found = await clientsApi.search(companyId, rifCedulaSearch.trim());
-      setSearchResult(found as Client | null);
       if (found) {
+        setSearchResult(found as Client);
         setForm({
           name: (found as Client).name,
           address: (found as Client).address ?? '',
@@ -79,6 +79,7 @@ export default function ClientesPage() {
           email: (found as Client).email ?? '',
         });
       } else {
+        setSearchResult('not-found');
         setForm({
           name: '',
           address: '',
@@ -175,9 +176,9 @@ export default function ClientesPage() {
             {searchResult === 'loading' && <p className="mt-2 text-sm text-[var(--muted)]">Buscando...</p>}
             {searchResult !== null && searchResult !== 'loading' && (
               <div className="mt-4 space-y-4">
-                {searchResult ? (
+                {searchResult !== 'not-found' ? (
                   <div className="p-4 rounded-lg bg-[var(--background)] border border-[var(--border)]">
-                    <p className="text-sm font-medium text-[var(--muted)] mb-2">Cliente encontrado (solo lectura)</p>
+                    <p className="text-sm font-medium text-[var(--muted)] mb-2">Cliente encontrado</p>
                     <p><span className="text-[var(--muted)]">Nombre:</span> {searchResult.name}</p>
                     {searchResult.address && <p><span className="text-[var(--muted)]">Dirección:</span> {searchResult.address}</p>}
                     <p><span className="text-[var(--muted)]">RIF/Cédula:</span> {searchResult.rifCedula}</p>

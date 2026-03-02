@@ -52,11 +52,15 @@ export const authApi = {
 };
 
 export const companiesApi = {
-  list: () => api<Array<{ id: string; name: string }>>('/companies'),
+  list: (params?: { username?: string; name?: string; rif?: string; email?: string }) =>
+    api<Array<{ id: string; name: string; address?: string; rif?: string; phone?: string; email?: string; adminUsername?: string | null }>>(
+      '/companies',
+      params ? { params: Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== '')) } : {}
+    ),
   get: (id: string) => api<unknown>(`/companies/${id}`),
   update: (id: string, data: { name?: string; address?: string; rif?: string; phone?: string; email?: string }) =>
     api<unknown>(`/companies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  create: (data: { name: string; address?: string; rif?: string }) =>
+  create: (data: { name: string; address?: string; rif?: string; phone?: string; email?: string }) =>
     api<unknown>('/companies', { method: 'POST', body: JSON.stringify(data) }),
 };
 
@@ -65,8 +69,8 @@ export const configApi = {
   update: (companyId: string, data: Record<string, unknown>) =>
     api<unknown>(`/config/company/${companyId}`, { method: 'PUT', body: JSON.stringify(data) }),
   getRoleModules: (companyId: string) =>
-    api<{ vendedor: { enabled: boolean; modules: string[] }; supervisor: { enabled: boolean; modules: string[] } }>(`/config/company/${companyId}/role-modules`),
-  updateRoleModules: (companyId: string, data: { vendedor?: { enabled: boolean; modules: string[] }; supervisor?: { enabled: boolean; modules: string[] } }) =>
+    api<{ admin?: { enabled: boolean; modules: string[] }; vendedor: { enabled: boolean; modules: string[] }; supervisor: { enabled: boolean; modules: string[] } }>(`/config/company/${companyId}/role-modules`),
+  updateRoleModules: (companyId: string, data: { admin?: { enabled: boolean; modules: string[] }; vendedor?: { enabled: boolean; modules: string[] }; supervisor?: { enabled: boolean; modules: string[] } }) =>
     api<unknown>(`/config/company/${companyId}/role-modules`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
@@ -159,4 +163,15 @@ export const adminApi = {
 
 export const usersApi = {
   listAdmins: () => api<Array<{ id: string; username: string; companyId: string | null; company: { id: string; name: string } | null }>>('/users/admins'),
+  createUser: (data: {
+    username: string;
+    password: string;
+    role: string;
+    companyId?: string;
+    companyName?: string;
+    companyAddress?: string;
+    companyRif?: string;
+    companyPhone?: string;
+    companyEmail?: string;
+  }) => api<unknown>('/users', { method: 'POST', body: JSON.stringify(data) }),
 };

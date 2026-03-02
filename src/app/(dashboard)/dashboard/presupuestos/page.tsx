@@ -19,9 +19,9 @@ export default function PresupuestosPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const companyId = user ? getCompanyId(user, selectedCompanyId) : null;
 
-  const [tab, setTab] = useState<'new' | 'list'>('list');
+  const [tab, setTab] = useState<'new' | 'list'>('new');
   const [company, setCompany] = useState<{ name: string; address?: string; rif?: string; phone?: string; email?: string } | null>(null);
-  const [config, setConfig] = useState<{ usdRate?: number; eurRate?: number } | null>(null);
+  const [config, setConfig] = useState<{ usdRate?: number; eurRate?: number; budgetFieldsConfig?: Record<string, { visible: boolean; required: boolean }> } | null>(null);
 
   const [title, setTitle] = useState('');
   const [clientRif, setClientRif] = useState('');
@@ -185,34 +185,50 @@ export default function PresupuestosPage() {
     setPaymentMethods((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
   };
 
+  const fieldConfig = config?.budgetFieldsConfig ?? {};
+  const isFieldVisible = (key: string) => fieldConfig[key]?.visible !== false;
+  const isFieldRequired = (key: string) => fieldConfig[key]?.required === true;
+
   const handleSubmitBudget = async () => {
-    if (!companyId || !selectedClientId || !title.trim()) {
-      setError('Título y cliente son obligatorios.');
+    if (!companyId || !selectedClientId) {
+      setError('Cliente es obligatorio.');
       return;
     }
     if (items.length === 0) {
       setError('Agrega al menos un producto.');
       return;
     }
-    if (!rateOfDay.trim() || isNaN(Number(rateOfDay))) {
+    if (isFieldVisible('title') && !title.trim()) {
+      setError('Título es obligatorio.');
+      return;
+    }
+    if (isFieldVisible('rateOfDay') && (!rateOfDay.trim() || isNaN(Number(rateOfDay)))) {
       setError('Tasa del día es obligatoria.');
+      return;
+    }
+    if (isFieldVisible('priority') && isFieldRequired('priority') && !priority) {
+      setError('Prioridad es obligatoria.');
+      return;
+    }
+    if (isFieldVisible('paymentMethods') && isFieldRequired('paymentMethods') && paymentMethods.length === 0) {
+      setError('Forma de pago es obligatoria.');
       return;
     }
     setSaving(true);
     setError('');
     try {
       await budgetsApi.create(companyId, {
-        title: title.trim(),
+        title: (isFieldVisible('title') ? title.trim() : '') || 'Presupuesto',
         clientId: selectedClientId,
         date: new Date().toISOString().slice(0, 10),
         ivaPercent,
-        rateOfDay: Number(rateOfDay),
+        rateOfDay: isFieldVisible('rateOfDay') ? Number(rateOfDay) : (Number(rateOfDay) || config?.usdRate || 1),
         currencies,
-        observations: observations.trim() || undefined,
-        priority,
-        paymentMethods,
-        deliveryTime: deliveryTime.trim() || undefined,
-        validity: validity.trim() || undefined,
+        observations: isFieldVisible('observations') ? observations.trim() || undefined : undefined,
+        priority: isFieldVisible('priority') ? priority : 'NORMAL',
+        paymentMethods: isFieldVisible('paymentMethods') ? paymentMethods : [],
+        deliveryTime: isFieldVisible('deliveryTime') ? deliveryTime.trim() || undefined : undefined,
+        validity: isFieldVisible('validity') ? validity.trim() || undefined : undefined,
         items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder })),
       });
       setTab('list');
@@ -291,17 +307,17 @@ export default function PresupuestosPage() {
           <div className="flex gap-2 mt-6 border-b border-[var(--border)]">
             <button
               type="button"
-              onClick={() => setTab('list')}
-              className={`px-4 py-2 font-medium ${tab === 'list' ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}
-            >
-              Consultar presupuestos
-            </button>
-            <button
-              type="button"
               onClick={() => setTab('new')}
               className={`px-4 py-2 font-medium ${tab === 'new' ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}
             >
               Nuevo presupuesto
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('list')}
+              className={`px-4 py-2 font-medium ${tab === 'list' ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}
+            >
+              Consultar presupuestos
             </button>
           </div>
 
@@ -317,6 +333,7 @@ export default function PresupuestosPage() {
                 <p className="text-[var(--muted)] mt-2 text-xs">Fecha del día: {today}</p>
               </section>
 
+              {isFieldVisible('title') && (
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Título del presupuesto</h2>
                 <input
@@ -326,6 +343,7 @@ export default function PresupuestosPage() {
                   className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2"
                 />
               </section>
+              )}
 
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Cliente</h2>
@@ -424,10 +442,12 @@ export default function PresupuestosPage() {
                     <label className="block text-sm text-[var(--muted)] mb-1">IVA (%)</label>
                     <input type="number" min={0} step={0.01} value={ivaPercent} onChange={(e) => setIvaPercent(Number(e.target.value))} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
                   </div>
+                  {isFieldVisible('rateOfDay') && (
                   <div>
                     <label className="block text-sm text-[var(--muted)] mb-1">Tasa del día</label>
                     <input value={rateOfDay} onChange={(e) => setRateOfDay(e.target.value)} placeholder="Ej: 36.5" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
                   </div>
+                  )}
                   <div>
                     <label className="block text-sm text-[var(--muted)] mb-1">Moneda(s)</label>
                     <div className="flex gap-2 flex-wrap">
@@ -440,6 +460,7 @@ export default function PresupuestosPage() {
                     </div>
                     <p className="text-xs text-[var(--muted)]">Máx. 2 opciones; no USD y EUR a la vez.</p>
                   </div>
+                  {isFieldVisible('priority') && (
                   <div>
                     <label className="block text-sm text-[var(--muted)] mb-1">Prioridad</label>
                     <select value={priority} onChange={(e) => setPriority(e.target.value as 'NORMAL' | 'URGENT')} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2">
@@ -447,6 +468,8 @@ export default function PresupuestosPage() {
                       <option value="URGENT">Urgente</option>
                     </select>
                   </div>
+                  )}
+                  {isFieldVisible('paymentMethods') && (
                   <div className="md:col-span-2">
                     <label className="block text-sm text-[var(--muted)] mb-1">Forma de pago</label>
                     <div className="flex flex-wrap gap-2">
@@ -458,18 +481,25 @@ export default function PresupuestosPage() {
                       ))}
                     </div>
                   </div>
+                  )}
+                  {isFieldVisible('deliveryTime') && (
                   <div>
                     <label className="block text-sm text-[var(--muted)] mb-1">Tiempo de entrega</label>
                     <input value={deliveryTime} onChange={(e) => setDeliveryTime(e.target.value)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
                   </div>
+                  )}
+                  {isFieldVisible('validity') && (
                   <div>
                     <label className="block text-sm text-[var(--muted)] mb-1">Validez del presupuesto</label>
                     <input value={validity} onChange={(e) => setValidity(e.target.value)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
                   </div>
+                  )}
+                  {isFieldVisible('observations') && (
                   <div className="md:col-span-2">
                     <label className="block text-sm text-[var(--muted)] mb-1">Observaciones</label>
                     <textarea value={observations} onChange={(e) => setObservations(e.target.value)} rows={2} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
                   </div>
+                  )}
                 </div>
               </section>
 

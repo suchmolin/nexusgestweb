@@ -7,6 +7,9 @@ import { configApi, companiesApi } from '@/lib/api';
 const INVOICE_FORMATS = ['LETTER', 'A4', 'TICKET'];
 const CURRENCY_SYMBOLS = [{ value: 'BS', label: 'Bs.' }, { value: 'USD', label: '$' }, { value: 'EUR', label: '€' }];
 const BUDGET_FIELDS = [
+  { key: 'title', label: 'Título' },
+  { key: 'rateOfDay', label: 'Tasa del día' },
+  { key: 'priority', label: 'Prioridad' },
   { key: 'observations', label: 'Observaciones' },
   { key: 'deliveryTime', label: 'Tiempo de entrega' },
   { key: 'validity', label: 'Validez' },
@@ -87,14 +90,18 @@ export default function ConfiguracionPage() {
       setLogoUrl(c?.logoUrl ?? '');
       setBudgetBackgroundUrl(c?.budgetBackgroundImageUrl ?? '');
       setInvoiceBackgroundUrl(c?.invoiceBackgroundImageUrl ?? '');
-      setBudgetFieldsConfig(c?.budgetFieldsConfig ?? Object.fromEntries(BUDGET_FIELDS.map((f) => [f.key, { visible: true, required: false }])));
-      setInvoiceFieldsConfig(c?.invoiceFieldsConfig ?? Object.fromEntries(BUDGET_FIELDS.map((f) => [f.key, { visible: true, required: false }])));
+      const defaultFields = Object.fromEntries(BUDGET_FIELDS.map((f) => [f.key, { visible: true, required: false }]));
+      setBudgetFieldsConfig({ ...defaultFields, ...(c?.budgetFieldsConfig || {}) });
+      setInvoiceFieldsConfig({ ...defaultFields, ...(c?.invoiceFieldsConfig || {}) });
       const root = document.documentElement;
       if (c?.primaryColor) { root.style.setProperty('--primary', c.primaryColor); root.style.setProperty('--primary-hover', c.primaryColor); }
       if (c?.secondaryColor) { root.style.setProperty('--secondary', c.secondaryColor); root.style.setProperty('--secondary-hover', c.secondaryColor); }
       if (c?.alternativeColor) { root.style.setProperty('--alternative', c.alternativeColor); root.style.setProperty('--alternative-hover', c.alternativeColor); }
     }).catch(() => setConfig(null));
-    configApi.getRoleModules(companyId).then(setRoleModules).catch(() => setRoleModules({ vendedor: { enabled: false, modules: [] }, supervisor: { enabled: false, modules: [] } }));
+    configApi.getRoleModules(companyId).then((res) => setRoleModules({
+      vendedor: res.vendedor ?? { enabled: false, modules: [] },
+      supervisor: res.supervisor ?? { enabled: false, modules: [] },
+    })).catch(() => setRoleModules({ vendedor: { enabled: false, modules: [] }, supervisor: { enabled: false, modules: [] } }));
   }, [companyId]);
 
   const handleSave = async () => {
@@ -330,7 +337,7 @@ export default function ConfiguracionPage() {
                 )}
               </div>
             </div>
-            <button type="button" onClick={async () => { setSavingRoles(true); try { await configApi.updateRoleModules(companyId, roleModules); alert('Roles guardados.'); } catch (e) { alert(e instanceof Error ? e.message : 'Error'); } finally { setSavingRoles(false); } }} disabled={savingRoles} className="mt-3 rounded-lg bg-[var(--secondary)] text-white px-4 py-2 disabled:opacity-50">Guardar roles</button>
+            <button type="button" onClick={async () => { setSavingRoles(true); try { await configApi.updateRoleModules(companyId, { vendedor: roleModules.vendedor, supervisor: roleModules.supervisor }); alert('Roles guardados.'); } catch (e) { alert(e instanceof Error ? e.message : 'Error'); } finally { setSavingRoles(false); } }} disabled={savingRoles} className="mt-3 rounded-lg bg-[var(--secondary)] text-white px-4 py-2 disabled:opacity-50">Guardar roles</button>
           </section>
 
           <button type="button" onClick={handleSave} disabled={saving} className="rounded-lg bg-[var(--primary)] text-white px-6 py-2 font-medium disabled:opacity-50">

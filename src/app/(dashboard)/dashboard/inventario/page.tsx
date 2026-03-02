@@ -189,12 +189,12 @@ export default function InventarioPage() {
       {companyId && (
         <>
           <div className="flex gap-2 mt-6 border-b border-[var(--border)] flex-wrap">
-            {(['add', 'ingreso', 'egreso', 'consulta'] as const).map((t) => (
+            {(['consulta', 'ingreso', 'egreso', 'add'] as const).map((t) => (
               <button key={t} type="button" onClick={() => setSubTab(t)} className={`px-4 py-2 font-medium ${subTab === t ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}>
-                {t === 'add' && 'Agregar producto'}
+                {t === 'consulta' && 'Consulta'}
                 {t === 'ingreso' && 'Ingreso'}
                 {t === 'egreso' && 'Egreso'}
-                {t === 'consulta' && 'Consulta'}
+                {t === 'add' && 'Agregar producto'}
               </button>
             ))}
           </div>

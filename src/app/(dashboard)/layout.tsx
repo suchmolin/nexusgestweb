@@ -22,6 +22,17 @@ export default function DashboardLayout({
     }
   }, [user, loading, router]);
 
+  useEffect(() => {
+    if (!user?.companyId) return;
+    const cid = user.companyId;
+    configApi.get(cid).then((c: any) => {
+      const root = document.documentElement;
+      if (c?.primaryColor) { root.style.setProperty('--primary', c.primaryColor); root.style.setProperty('--primary-hover', c.primaryColor); }
+      if (c?.secondaryColor) { root.style.setProperty('--secondary', c.secondaryColor); root.style.setProperty('--secondary-hover', c.secondaryColor); }
+      if (c?.alternativeColor) { root.style.setProperty('--alternative', c.alternativeColor); root.style.setProperty('--alternative-hover', c.alternativeColor); }
+    }).catch(() => {});
+  }, [user?.companyId]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
@@ -30,17 +41,6 @@ export default function DashboardLayout({
     );
   }
   if (!user) return null;
-
-  useEffect(() => {
-    const cid = user.companyId ?? null;
-    if (!cid) return;
-    configApi.get(cid).then((c: any) => {
-      const root = document.documentElement;
-      if (c?.primaryColor) { root.style.setProperty('--primary', c.primaryColor); root.style.setProperty('--primary-hover', c.primaryColor); }
-      if (c?.secondaryColor) { root.style.setProperty('--secondary', c.secondaryColor); root.style.setProperty('--secondary-hover', c.secondaryColor); }
-      if (c?.alternativeColor) { root.style.setProperty('--alternative', c.alternativeColor); root.style.setProperty('--alternative-hover', c.alternativeColor); }
-    }).catch(() => {});
-  }, [user.companyId]);
 
   return (
     <div className="flex min-h-screen bg-[var(--background)]">

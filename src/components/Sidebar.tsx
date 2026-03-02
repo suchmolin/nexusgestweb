@@ -1,12 +1,14 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { configApi } from '@/lib/api';
 
 const MODULES: { key: string; label: string; href: string; superAdminOnly?: boolean }[] = [
-  { key: 'GESTION_USUARIOS', label: 'Gestión de usuarios', href: '/dashboard/usuarios', superAdminOnly: true },
+  { key: 'GESTION_USUARIOS', label: 'Gestión de usuarios', href: '/dashboard/usuarios' },
   { key: 'CONFIGURACION', label: 'Configuración', href: '/dashboard/configuracion' },
   { key: 'CLIENTES', label: 'Clientes', href: '/dashboard/clientes' },
   { key: 'PRESUPUESTOS', label: 'Presupuestos', href: '/dashboard/presupuestos' },
@@ -21,10 +23,29 @@ export function Sidebar() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { theme, setTheme } = useTheme();
+  const [adminAllowedModules, setAdminAllowedModules] = useState<string[] | null>(null);
+
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isAdminOrSuperAdmin = isSuperAdmin || user?.role === 'ADMIN';
+
+  useEffect(() => {
+    if (user?.role === 'ADMIN' && user?.companyId) {
+      configApi.getRoleModules(user.companyId).then((res) => {
+        if (res.admin?.enabled) {
+          setAdminAllowedModules(res.admin.modules ?? []);
+        } else {
+          setAdminAllowedModules(null);
+        }
+      }).catch(() => setAdminAllowedModules(null));
+    } else {
+      setAdminAllowedModules(null);
+    }
+  }, [user?.role, user?.companyId]);
 
   const visibleModules = MODULES.filter((m) => {
+    if (m.key === 'GESTION_USUARIOS' && !isAdminOrSuperAdmin) return false;
     if (m.superAdminOnly && !isSuperAdmin) return false;
+    if (user?.role === 'ADMIN' && adminAllowedModules !== null && !adminAllowedModules.includes(m.key)) return false;
     return true;
   });
 
