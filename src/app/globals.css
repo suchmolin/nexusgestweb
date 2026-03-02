@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
-/* NexusGest - Dark blue theme. Primary/Secondary/Alternative customizable per company later */
-:root {
+/* NexusGest - Dark (default) and light theme. Colores primario/secundario/alternativo se sobrescriben desde Configuración */
+:root,
+[data-theme="dark"] {
   --background: #0f172a;
   --foreground: #e2e8f0;
   --card: #1e293b;
@@ -17,6 +18,15 @@
   --destructive: #ef4444;
   --success: #22c55e;
   --radius: 0.75rem;
+}
+
+[data-theme="light"] {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-hover: #f1f5f9;
+  --border: #e2e8f0;
+  --muted: #64748b;
 }
 
 @theme inline {

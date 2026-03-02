@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const MODULES: { key: string; label: string; href: string; superAdminOnly?: boolean }[] = [
   { key: 'GESTION_USUARIOS', label: 'Gestión de usuarios', href: '/dashboard/usuarios', superAdminOnly: true },
@@ -19,6 +20,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { theme, setTheme } = useTheme();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   const visibleModules = MODULES.filter((m) => {
@@ -60,6 +62,17 @@ export function Sidebar() {
         })}
       </nav>
       <div className="p-2 border-t border-[var(--border)]">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <span className="text-xs text-[var(--muted)]">Tema</span>
+          <button
+            type="button"
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="rounded-lg bg-[var(--card-hover)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)]"
+            title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+          >
+            {theme === 'dark' ? '☀️ Claro' : '🌙 Oscuro'}
+          </button>
+        </div>
         <p className="px-3 py-1 text-xs text-[var(--muted)]">{user?.username}</p>
         <button
           type="button"

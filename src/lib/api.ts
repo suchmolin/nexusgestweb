@@ -22,11 +22,17 @@ export async function api<T>(
   };
   if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   const res = await fetch(url, { ...rest, headers });
+  const text = await res.text();
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }));
+    const err = text ? (() => { try { return JSON.parse(text); } catch { return { message: res.statusText }; } })() : { message: res.statusText };
     throw new Error(err.message || 'Error en la solicitud');
   }
-  return res.json();
+  if (!text || text.trim() === '') return null as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error('Respuesta no válida del servidor');
+  }
 }
 
 export const authApi = {
@@ -48,6 +54,8 @@ export const authApi = {
 export const companiesApi = {
   list: () => api<Array<{ id: string; name: string }>>('/companies'),
   get: (id: string) => api<unknown>(`/companies/${id}`),
+  update: (id: string, data: { name?: string; address?: string; rif?: string; phone?: string; email?: string }) =>
+    api<unknown>(`/companies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   create: (data: { name: string; address?: string; rif?: string }) =>
     api<unknown>('/companies', { method: 'POST', body: JSON.stringify(data) }),
 };
@@ -56,6 +64,10 @@ export const configApi = {
   get: (companyId: string) => api<unknown>(`/config/company/${companyId}`),
   update: (companyId: string, data: Record<string, unknown>) =>
     api<unknown>(`/config/company/${companyId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getRoleModules: (companyId: string) =>
+    api<{ vendedor: { enabled: boolean; modules: string[] }; supervisor: { enabled: boolean; modules: string[] } }>(`/config/company/${companyId}/role-modules`),
+  updateRoleModules: (companyId: string, data: { vendedor?: { enabled: boolean; modules: string[] }; supervisor?: { enabled: boolean; modules: string[] } }) =>
+    api<unknown>(`/config/company/${companyId}/role-modules`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 export const clientsApi = {
@@ -98,6 +110,13 @@ export const budgetsApi = {
     api<unknown>(`/budgets/${id}`, { method: 'DELETE', params: { companyId } }),
   duplicate: (id: string, companyId: string) =>
     api<unknown>(`/budgets/${id}/duplicate`, { method: 'POST', params: { companyId } }),
+  getPdfBlob: async (id: string, companyId: string): Promise<Blob> => {
+    const url = `${API_BASE}/budgets/${id}/pdf?companyId=${encodeURIComponent(companyId)}`;
+    const token = getToken();
+    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new Error('Error al generar PDF');
+    return res.blob();
+  },
 };
 
 export const invoicesApi = {
@@ -108,6 +127,13 @@ export const invoicesApi = {
     api<unknown>('/invoices/from-budget', { method: 'POST', body: JSON.stringify({ budgetId }), params: { companyId } }),
   create: (companyId: string, data: unknown) =>
     api<unknown>('/invoices', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  getPdfBlob: async (id: string, companyId: string): Promise<Blob> => {
+    const url = `${API_BASE}/invoices/${id}/pdf?companyId=${encodeURIComponent(companyId)}`;
+    const token = getToken();
+    const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new Error('Error al generar PDF');
+    return res.blob();
+  },
 };
 
 export const inventoryApi = {
@@ -124,4 +150,13 @@ export const logsApi = {
     api<{ items: unknown[]; total: number }>('/logs', {
       params: filters as Record<string, string>,
     }),
+};
+
+export const adminApi = {
+  stats: (companyId: string) =>
+    api<{ ingresosCount: number; ingresosTotalCost: number; facturacionCount: number; facturacionTotal: number; balance: number }>('/admin/stats', { params: { companyId } }),
+};
+
+export const usersApi = {
+  listAdmins: () => api<Array<{ id: string; username: string; companyId: string | null; company: { id: string; name: string } | null }>>('/users/admins'),
 };
