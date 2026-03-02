@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { ModuleIcon } from '@/components/Icons';
 
 const MODULES: { key: string; label: string; href: string; desc: string; superAdminOnly?: boolean }[] = [
   { key: 'GESTION_USUARIOS', label: 'Gestión de usuarios', href: '/dashboard/usuarios', desc: 'Administrar usuarios admin y módulos por empresa', superAdminOnly: true },
@@ -27,15 +28,26 @@ export default function DashboardPage() {
       <p className="text-[var(--muted)] mb-8">
         Selecciona un módulo para comenzar.
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {visible.map((m) => (
           <Link
             key={m.key}
             href={m.href}
-            className="block p-5 rounded-xl bg-[var(--card)] border border-[var(--border)] hover:border-[var(--primary)] hover:shadow-lg transition-all"
+            className="group relative flex flex-col sm:flex-col items-center justify-center gap-2 sm:gap-3 p-4 sm:p-6 rounded-xl bg-[var(--card)] border border-[var(--border)] hover:border-[var(--primary)] hover:shadow-lg transition-all min-h-[72px] sm:min-h-[120px]"
           >
-            <h2 className="font-semibold text-[var(--foreground)] mb-1">{m.label}</h2>
-            <p className="text-sm text-[var(--muted)]">{m.desc}</p>
+            <div className="text-[var(--primary)] group-hover:scale-110 transition-transform flex items-center justify-center">
+              <ModuleIcon moduleKey={m.key} />
+            </div>
+            <span className="font-semibold text-[var(--foreground)] text-center text-sm">
+              {m.label}
+            </span>
+            <div
+              role="tooltip"
+              className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg bg-[var(--card)] border border-[var(--border)] shadow-lg text-sm text-[var(--foreground)] whitespace-nowrap opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 z-10 pointer-events-none hidden sm:block"
+            >
+              {m.desc}
+              <span className="absolute left-1/2 -translate-x-1/2 top-full border-4 border-transparent border-t-[var(--border)]" />
+            </div>
           </Link>
         ))}
       </div>

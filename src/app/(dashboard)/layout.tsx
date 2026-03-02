@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Sidebar } from '@/components/Sidebar';
 import { configApi } from '@/lib/api';
+import { useIsMobile } from '@/hooks/useIsMobile';
+import { IconMenu } from '@/components/Icons';
 
 export default function DashboardLayout({
   children,
@@ -13,6 +15,8 @@ export default function DashboardLayout({
 }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const isMobile = useIsMobile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     if (loading) return;
@@ -44,10 +48,27 @@ export default function DashboardLayout({
 
   return (
     <div className="flex min-h-screen bg-[var(--background)]">
-      <Sidebar />
-      <main className="flex-1 overflow-auto">
-        {children}
-      </main>
+      <Sidebar
+        isMobile={isMobile}
+        mobileOpen={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+      />
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="md:hidden sticky top-0 z-20 flex items-center gap-3 p-3 bg-[var(--card)] border-b border-[var(--border)]">
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className="p-2 rounded-lg text-[var(--foreground)] hover:bg-[var(--card-hover)]"
+            aria-label="Abrir menú"
+          >
+            <IconMenu className="w-6 h-6" />
+          </button>
+          <span className="font-semibold text-lg text-[var(--foreground)]">NexusGest</span>
+        </header>
+        <main className="flex-1 overflow-auto">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }
