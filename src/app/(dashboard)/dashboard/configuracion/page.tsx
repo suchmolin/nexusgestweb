@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { configApi, companiesApi } from '@/lib/api';
+import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 
 const INVOICE_FORMATS = ['LETTER', 'A4', 'TICKET'];
 const CURRENCY_SYMBOLS = [{ value: 'BS', label: 'Bs.' }, { value: 'USD', label: '$' }, { value: 'EUR', label: '€' }];
@@ -59,6 +60,10 @@ export default function ConfiguracionPage() {
   const [roleModules, setRoleModules] = useState<{ vendedor: { enabled: boolean; modules: string[] }; supervisor: { enabled: boolean; modules: string[] } }>({ vendedor: { enabled: false, modules: [] }, supervisor: { enabled: false, modules: [] } });
   const [savingRoles, setSavingRoles] = useState(false);
   const [savingCompany, setSavingCompany] = useState(false);
+
+  const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
+  const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
+  const closeActionModal = () => setActionModal((p) => ({ ...p, open: false }));
 
   useEffect(() => {
     if (user?.role === 'SUPER_ADMIN') companiesApi.list().then(setCompanies).catch(() => {});
@@ -129,9 +134,9 @@ export default function ConfiguracionPage() {
       root.style.setProperty('--secondary-hover', secondaryColor);
       root.style.setProperty('--alternative', alternativeColor);
       root.style.setProperty('--alternative-hover', alternativeColor);
-      alert('Configuración guardada.');
+      showActionModal('Configuración guardada', 'Los cambios se han guardado correctamente.', 'success');
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al guardar');
+      showActionModal('Error al guardar', e instanceof Error ? e.message : 'Error al guardar', 'error');
     } finally {
       setSaving(false);
     }
@@ -181,7 +186,7 @@ export default function ConfiguracionPage() {
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
               </div>
             </div>
-            <button type="button" onClick={async () => { if (!companyId) return; setSavingCompany(true); try { await companiesApi.update(companyId, { name, address, rif, phone, email }); alert('Datos de empresa guardados.'); } catch (e) { alert(e instanceof Error ? e.message : 'Error'); } finally { setSavingCompany(false); } }} disabled={savingCompany} className="mt-3 rounded-lg bg-[var(--secondary)] text-white px-4 py-2 disabled:opacity-50">Guardar datos empresa</button>
+            <button type="button" onClick={async () => { if (!companyId) return; setSavingCompany(true); try { await companiesApi.update(companyId, { name, address, rif, phone, email }); showActionModal('Datos de empresa guardados', 'Los datos de la empresa se han actualizado correctamente.', 'success'); } catch (e) { showActionModal('Error', e instanceof Error ? e.message : 'Error', 'error'); } finally { setSavingCompany(false); } }} disabled={savingCompany} className="mt-3 rounded-lg bg-[var(--secondary)] text-white px-4 py-2 disabled:opacity-50">Guardar datos empresa</button>
           </section>
 
           <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
@@ -337,7 +342,7 @@ export default function ConfiguracionPage() {
                 )}
               </div>
             </div>
-            <button type="button" onClick={async () => { setSavingRoles(true); try { await configApi.updateRoleModules(companyId, { vendedor: roleModules.vendedor, supervisor: roleModules.supervisor }); alert('Roles guardados.'); } catch (e) { alert(e instanceof Error ? e.message : 'Error'); } finally { setSavingRoles(false); } }} disabled={savingRoles} className="mt-3 rounded-lg bg-[var(--secondary)] text-white px-4 py-2 disabled:opacity-50">Guardar roles</button>
+            <button type="button" onClick={async () => { setSavingRoles(true); try { await configApi.updateRoleModules(companyId, { vendedor: roleModules.vendedor, supervisor: roleModules.supervisor }); showActionModal('Roles guardados', 'Los roles y módulos se han actualizado correctamente.', 'success'); } catch (e) { showActionModal('Error', e instanceof Error ? e.message : 'Error', 'error'); } finally { setSavingRoles(false); } }} disabled={savingRoles} className="mt-3 rounded-lg bg-[var(--secondary)] text-white px-4 py-2 disabled:opacity-50">Guardar roles</button>
           </section>
 
           <button type="button" onClick={handleSave} disabled={saving} className="rounded-lg bg-[var(--primary)] text-white px-6 py-2 font-medium disabled:opacity-50">
@@ -345,6 +350,7 @@ export default function ConfiguracionPage() {
           </button>
         </div>
       )}
+      <ActionModal open={actionModal.open} onClose={closeActionModal} title={actionModal.title} message={actionModal.message} variant={actionModal.variant} />
     </div>
   );
 }

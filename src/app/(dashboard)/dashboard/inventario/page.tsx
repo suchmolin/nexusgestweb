@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { productsApi, inventoryApi, companiesApi } from '@/lib/api';
+import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 
 function getCompanyId(user: { role: string; companyId: string | null }, selected: string | null): string | null {
   return user.role === 'SUPER_ADMIN' ? selected : user.companyId;
@@ -50,6 +51,10 @@ export default function InventarioPage() {
   const [deleteProduct, setDeleteProduct] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
+  const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
+  const closeActionModal = () => setActionModal((p) => ({ ...p, open: false }));
+
   useEffect(() => {
     if (user?.role === 'SUPER_ADMIN') companiesApi.list().then(setCompanies).catch(() => {});
   }, [user?.role]);
@@ -78,8 +83,10 @@ export default function InventarioPage() {
       setName('');
       setDescription('');
       loadProducts();
+      showActionModal('Producto agregado', 'El producto se ha registrado correctamente en el inventario.', 'success');
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al agregar');
+      const msg = e instanceof Error ? e.message : 'Error al agregar';
+      showActionModal('Error al agregar producto', msg, 'error');
     } finally {
       setAddSaving(false);
     }
@@ -108,8 +115,9 @@ export default function InventarioPage() {
       setIngresoSalePrice('');
       setIngresoObservation('');
       loadProducts();
+      showActionModal('Ingreso registrado', 'El ingreso de producto se ha registrado correctamente.', 'success');
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al registrar ingreso');
+      showActionModal('Error al registrar ingreso', e instanceof Error ? e.message : 'Error al registrar ingreso', 'error');
     } finally {
       setIngresoSaving(false);
     }
@@ -131,7 +139,7 @@ export default function InventarioPage() {
       setEgresoObservation('');
       loadProducts();
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al registrar egreso');
+      showActionModal('Error al registrar egreso', e instanceof Error ? e.message : 'Error al registrar egreso', 'error');
     } finally {
       setEgresoSaving(false);
     }
@@ -162,7 +170,7 @@ export default function InventarioPage() {
       setDeleteProduct(null);
       loadProducts();
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al eliminar');
+      showActionModal('Error al eliminar', e instanceof Error ? e.message : 'Error al eliminar', 'error');
     } finally {
       setDeleting(false);
     }
@@ -394,6 +402,7 @@ export default function InventarioPage() {
           )}
         </>
       )}
+      <ActionModal open={actionModal.open} onClose={closeActionModal} title={actionModal.title} message={actionModal.message} variant={actionModal.variant} />
     </div>
   );
 }

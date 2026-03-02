@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { invoicesApi, budgetsApi, clientsApi, productsApi, companiesApi, configApi } from '@/lib/api';
+import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 
 const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', 'ZELLE'];
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
@@ -40,6 +41,10 @@ export default function FacturacionPage() {
   const [invoiceFilterCode, setInvoiceFilterCode] = useState('');
   const [invoiceFilterClient, setInvoiceFilterClient] = useState('');
 
+  const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
+  const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
+  const closeActionModal = () => setActionModal((p) => ({ ...p, open: false }));
+
   const [company, setCompany] = useState<any>(null);
   const [config, setConfig] = useState<any>(null);
   const [title, setTitle] = useState('');
@@ -51,7 +56,7 @@ export default function FacturacionPage() {
   const [items, setItems] = useState<InvoiceItemRow[]>([]);
   const [ivaPercent, setIvaPercent] = useState(12);
   const [rateOfDay, setRateOfDay] = useState('');
-  const [currencies, setCurrencies] = useState<string[]>(['USD']);
+  const [currencies, setCurrencies] = useState<string[]>(['BS']);
   const [observations, setObservations] = useState('');
   const [priority, setPriority] = useState<'NORMAL' | 'URGENT'>('NORMAL');
   const [paymentMethods, setPaymentMethods] = useState<string[]>([]);
@@ -94,7 +99,10 @@ export default function FacturacionPage() {
   useEffect(() => {
     if (!companyId || tab !== 'new') return;
     companiesApi.get(companyId).then((c: any) => setCompany(c)).catch(() => setCompany(null));
-    configApi.get(companyId).then((c: any) => setConfig(c)).catch(() => setConfig(null));
+    configApi.get(companyId).then((c: any) => {
+      setConfig(c);
+      setCurrencies(prev => (prev.length === 1 && prev[0] === 'BS' ? [c?.currencySymbol || 'BS'] : prev));
+    }).catch(() => setConfig(null));
   }, [companyId, tab]);
 
   const handleSearchClient = async () => {
@@ -131,7 +139,7 @@ export default function FacturacionPage() {
       const prod = list[0];
       if (!prod) return;
       const existing = items.find((i) => i.productId === prod.id);
-      const unitPrice = typeof prod.stock === 'number' && prod.stock > 0 ? 0 : 0;
+      const unitPrice = Number(prod.salePrice) || 0;
       if (existing) {
         setItems((prev) => prev.map((i) => i.productId === prod.id ? { ...i, quantity: i.quantity + 1 } : i));
       } else {
@@ -214,7 +222,7 @@ export default function FacturacionPage() {
       loadInvoices();
       setTab('list');
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al generar factura');
+      showActionModal('Error al generar factura', e instanceof Error ? e.message : 'Error al generar factura', 'error');
     } finally {
       setCreatingFromBudget(false);
     }
@@ -231,7 +239,7 @@ export default function FacturacionPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al descargar PDF');
+      showActionModal('Error al descargar PDF', e instanceof Error ? e.message : 'Error al descargar PDF', 'error');
     }
   };
 
@@ -396,13 +404,14 @@ export default function FacturacionPage() {
                 <input value={productCodeInput} onChange={(e) => setProductCodeInput(e.target.value)} onKeyDown={handleProductCodeKeyDown} placeholder="Código del producto (Enter para buscar y agregar)" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 mb-3" />
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead><tr className="text-left text-[var(--muted)]"><th className="p-2">COD</th><th className="p-2">Nombre</th><th className="p-2">Cant.</th><th className="p-2">P. unit.</th><th className="p-2"></th></tr></thead>
+                    <thead><tr className="text-left text-[var(--muted)]"><th className="p-2">COD</th><th className="p-2">Nombre</th><th className="p-2">Cant.</th><th className="p-2">P. unit.</th><th className="p-2">Total</th><th className="p-2"></th></tr></thead>
                     <tbody>
                       {items.map((it, idx) => (
                         <tr key={it.productId} className="border-t border-[var(--border)]">
                           <td className="p-2">{it.code}</td><td className="p-2">{it.name}</td>
                           <td className="p-2"><input type="number" min={1} value={it.quantity} onChange={(e) => updateItem(it.productId, { quantity: Number(e.target.value) || 1 })} className="w-16 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-1" /></td>
-                          <td className="p-2"><input type="number" min={0} step={0.01} value={it.unitPrice} onChange={(e) => updateItem(it.productId, { unitPrice: Number(e.target.value) || 0 })} className="w-24 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-1" /></td>
+                          <td className="p-2 text-right tabular-nums">{(it.unitPrice ?? 0).toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums">{((it.quantity ?? 0) * (it.unitPrice ?? 0)).toFixed(2)}</td>
                           <td className="p-2">
                             <button type="button" onClick={() => moveItem(it.productId, 'up')} disabled={idx === 0} className="mr-1 text-[var(--muted)] disabled:opacity-50">↑</button>
                             <button type="button" onClick={() => moveItem(it.productId, 'down')} disabled={idx === items.length - 1} className="mr-1 text-[var(--muted)] disabled:opacity-50">↓</button>
@@ -413,6 +422,31 @@ export default function FacturacionPage() {
                     </tbody>
                   </table>
                 </div>
+                {items.length > 0 && (
+                  <div className="mt-3 p-3 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm space-y-1">
+                    {(() => {
+                      const cantidadProductos = items.reduce((s, i) => s + (i.quantity ?? 0), 0);
+                      const subtotalBs = items.reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                      const ivaMonto = subtotalBs * (ivaPercent / 100);
+                      const totalBs = subtotalBs + ivaMonto;
+                      const rate = rateOfDay && !isNaN(Number(rateOfDay)) ? Number(rateOfDay) : config?.usdRate;
+                      return (
+                        <>
+                          <p className="text-[var(--muted)]">Cantidad de productos: <strong className="text-[var(--foreground)]">{cantidadProductos}</strong></p>
+                          <p className="text-[var(--foreground)]">Subtotal: <strong>{subtotalBs.toFixed(2)}</strong> Bs.</p>
+                          <p className="text-[var(--foreground)]">IVA ({ivaPercent}%): <strong>{ivaMonto.toFixed(2)}</strong> Bs.</p>
+                          <p className="text-[var(--foreground)] font-medium">Total Bs.: <strong>{totalBs.toFixed(2)}</strong> Bs.</p>
+                          {currencies.includes('USD') && rate && rate > 0 && (
+                            <p className="text-[var(--muted)]">Total USD (tasa {rate}): <strong>{(totalBs / rate).toFixed(2)}</strong> USD</p>
+                          )}
+                          {currencies.includes('EUR') && config?.eurRate && config.eurRate > 0 && (
+                            <p className="text-[var(--muted)]">Total EUR (tasa {config.eurRate}): <strong>{(totalBs / config.eurRate).toFixed(2)}</strong> EUR</p>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
               </section>
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Información general</h2>
@@ -502,6 +536,7 @@ export default function FacturacionPage() {
           )}
         </>
       )}
+      <ActionModal open={actionModal.open} onClose={closeActionModal} title={actionModal.title} message={actionModal.message} variant={actionModal.variant} />
     </div>
   );
 }

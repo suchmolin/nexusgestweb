@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { budgetsApi, clientsApi, productsApi, companiesApi, configApi } from '@/lib/api';
+import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 
 const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', 'ZELLE'];
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
@@ -21,7 +22,7 @@ export default function PresupuestosPage() {
 
   const [tab, setTab] = useState<'new' | 'list'>('new');
   const [company, setCompany] = useState<{ name: string; address?: string; rif?: string; phone?: string; email?: string } | null>(null);
-  const [config, setConfig] = useState<{ usdRate?: number; eurRate?: number; budgetFieldsConfig?: Record<string, { visible: boolean; required: boolean }> } | null>(null);
+  const [config, setConfig] = useState<{ usdRate?: number; eurRate?: number; currencySymbol?: string; budgetFieldsConfig?: Record<string, { visible: boolean; required: boolean }> } | null>(null);
 
   const [title, setTitle] = useState('');
   const [clientRif, setClientRif] = useState('');
@@ -32,7 +33,7 @@ export default function PresupuestosPage() {
   const [items, setItems] = useState<BudgetItemRow[]>([]);
   const [ivaPercent, setIvaPercent] = useState(12);
   const [rateOfDay, setRateOfDay] = useState('');
-  const [currencies, setCurrencies] = useState<string[]>(['USD']);
+  const [currencies, setCurrencies] = useState<string[]>(['BS']);
   const [observations, setObservations] = useState('');
   const [priority, setPriority] = useState<'NORMAL' | 'URGENT'>('NORMAL');
   const [paymentMethods, setPaymentMethods] = useState<string[]>([]);
@@ -54,6 +55,10 @@ export default function PresupuestosPage() {
   const [deleteModal, setDeleteModal] = useState<{ id: string; correlative: string } | null>(null);
   const [duplicateModal, setDuplicateModal] = useState<{ id: string; budget: any } | null>(null);
 
+  const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
+  const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
+  const closeActionModal = () => setActionModal((p) => ({ ...p, open: false }));
+
   useEffect(() => {
     if (user?.role === 'SUPER_ADMIN') companiesApi.list().then(setCompanies).catch(() => {});
   }, [user?.role]);
@@ -65,7 +70,10 @@ export default function PresupuestosPage() {
   useEffect(() => {
     if (!companyId) return;
     companiesApi.get(companyId).then((c: any) => setCompany(c)).catch(() => setCompany(null));
-    configApi.get(companyId).then((c: any) => setConfig(c)).catch(() => setConfig(null));
+    configApi.get(companyId).then((c: any) => {
+      setConfig(c);
+      setCurrencies(prev => (prev.length === 1 && prev[0] === 'BS' ? [c?.currencySymbol || 'BS'] : prev));
+    }).catch(() => setConfig(null));
   }, [companyId]);
 
   const loadList = useCallback(() => {
@@ -128,6 +136,7 @@ export default function PresupuestosPage() {
       const prod = (list as any[])[0];
       if (!prod) return;
       const existing = items.find((i) => i.productId === prod.id);
+      const unitPrice = Number(prod.salePrice) || 0;
       if (existing) {
         setItems((prev) => prev.map((i) => i.productId === prod.id ? { ...i, quantity: i.quantity + 1 } : i));
       } else {
@@ -140,7 +149,7 @@ export default function PresupuestosPage() {
             description: prod.description,
             stock: prod.stock,
             quantity: 1,
-            unitPrice: Number(prod.stock) ? 0 : 0,
+            unitPrice,
             sortOrder: prev.length + 1,
           },
         ]);
@@ -261,7 +270,7 @@ export default function PresupuestosPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al descargar PDF');
+      showActionModal('Error al descargar PDF', e instanceof Error ? e.message : 'Error al descargar PDF', 'error');
     }
   };
 
@@ -272,7 +281,7 @@ export default function PresupuestosPage() {
       setDeleteModal(null);
       loadList();
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error al eliminar');
+      showActionModal('Error al eliminar', e instanceof Error ? e.message : 'Error al eliminar', 'error');
     }
   };
 
@@ -396,6 +405,7 @@ export default function PresupuestosPage() {
                         <th className="p-2">Nombre</th>
                         <th className="p-2">Cant.</th>
                         <th className="p-2">P. unit.</th>
+                        <th className="p-2">Total</th>
                         <th className="p-2"></th>
                       </tr>
                     </thead>
@@ -413,16 +423,8 @@ export default function PresupuestosPage() {
                               className="w-16 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-1"
                             />
                           </td>
-                          <td className="p-2">
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.01}
-                              value={it.unitPrice}
-                              onChange={(e) => updateItem(it.productId, { unitPrice: Number(e.target.value) || 0 })}
-                              className="w-24 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-1"
-                            />
-                          </td>
+                          <td className="p-2 text-right tabular-nums">{(it.unitPrice ?? 0).toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums">{((it.quantity ?? 0) * (it.unitPrice ?? 0)).toFixed(2)}</td>
                           <td className="p-2">
                             <button type="button" onClick={() => moveItem(it.productId, 'up')} disabled={idx === 0} className="mr-1 text-[var(--muted)] disabled:opacity-50">↑</button>
                             <button type="button" onClick={() => moveItem(it.productId, 'down')} disabled={idx === items.length - 1} className="mr-1 text-[var(--muted)] disabled:opacity-50">↓</button>
@@ -433,6 +435,31 @@ export default function PresupuestosPage() {
                     </tbody>
                   </table>
                 </div>
+                {items.length > 0 && (
+                  <div className="mt-3 p-3 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm space-y-1">
+                    {(() => {
+                      const cantidadProductos = items.reduce((s, i) => s + (i.quantity ?? 0), 0);
+                      const subtotalBs = items.reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                      const ivaMonto = subtotalBs * (ivaPercent / 100);
+                      const totalBs = subtotalBs + ivaMonto;
+                      const rate = rateOfDay && !isNaN(Number(rateOfDay)) ? Number(rateOfDay) : config?.usdRate;
+                      return (
+                        <>
+                          <p className="text-[var(--muted)]">Cantidad de productos: <strong className="text-[var(--foreground)]">{cantidadProductos}</strong></p>
+                          <p className="text-[var(--foreground)]">Subtotal: <strong>{subtotalBs.toFixed(2)}</strong> Bs.</p>
+                          <p className="text-[var(--foreground)]">IVA ({ivaPercent}%): <strong>{ivaMonto.toFixed(2)}</strong> Bs.</p>
+                          <p className="text-[var(--foreground)] font-medium">Total Bs.: <strong>{totalBs.toFixed(2)}</strong> Bs.</p>
+                          {currencies.includes('USD') && rate && rate > 0 && (
+                            <p className="text-[var(--muted)]">Total USD (tasa {rate}): <strong>{(totalBs / rate).toFixed(2)}</strong> USD</p>
+                          )}
+                          {currencies.includes('EUR') && config?.eurRate && config.eurRate > 0 && (
+                            <p className="text-[var(--muted)]">Total EUR (tasa {config.eurRate}): <strong>{(totalBs / config.eurRate).toFixed(2)}</strong> EUR</p>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
               </section>
 
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
@@ -604,6 +631,7 @@ export default function PresupuestosPage() {
           )}
         </>
       )}
+      <ActionModal open={actionModal.open} onClose={closeActionModal} title={actionModal.title} message={actionModal.message} variant={actionModal.variant} />
     </div>
   );
 }
