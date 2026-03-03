@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { budgetsApi, clientsApi, productsApi, companiesApi, configApi, inventoryApi } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
-import { IconSearch, IconX } from '@/components/Icons';
+import { IconSearch, IconX, IconDownloadCloud, IconPencil, IconCopy, IconTrash } from '@/components/Icons';
 
 const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', 'ZELLE'];
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
@@ -81,7 +81,7 @@ export default function PresupuestosPage() {
   const [filterCode, setFilterCode] = useState('');
   const [filterClient, setFilterClient] = useState('');
   const [filterProduct, setFilterProduct] = useState('');
-  const [editModal, setEditModal] = useState<{ id: string; budget: any } | null>(null);
+  const [editModal, setEditModal] = useState<{ id: string; budget: any | null } | null>(null);
   const [deleteModal, setDeleteModal] = useState<{ id: string; correlative: string } | null>(null);
   const [duplicateModal, setDuplicateModal] = useState<{ id: string; budget: any } | null>(null);
 
@@ -544,6 +544,162 @@ export default function PresupuestosPage() {
 
   const today = new Date().toISOString().slice(0, 10);
 
+  const handleOpenEdit = async (b: any) => {
+    if (!companyId) return;
+    setEditModal({ id: b.id, budget: null });
+    setSaving(false);
+    setError('');
+    try {
+      const fullBudget = await budgetsApi.get(b.id, companyId) as any;
+      const client = fullBudget.client;
+      const budgetItems = fullBudget.items || [];
+      setTitle(fullBudget.title ?? '');
+      setSelectedClientId(fullBudget.clientId ?? null);
+      setClientRif(client?.rifCedula ?? '');
+      setClientSearchResult(client ?? null);
+      setClientForm({
+        name: client?.name ?? '',
+        address: client?.address ?? '',
+        rifCedula: client?.rifCedula ?? '',
+        phone: client?.phone ?? '',
+        email: client?.email ?? '',
+      });
+      setItems(
+        budgetItems.map((it: any, idx: number) => ({
+          productId: it.productId,
+          code: it.product?.code ?? '',
+          name: it.product?.name ?? '',
+          quantity: Number(it.quantity) || 1,
+          unitPrice: Number(it.unitPrice) ?? 0,
+          sortOrder: it.sortOrder ?? idx + 1,
+          exentoIva: !!it.exentoIva,
+        })),
+      );
+      setIvaPercent(Number(fullBudget.ivaPercent) ?? 12);
+      setRateOfDay(
+        fullBudget.rateOfDay != null && !Number.isNaN(Number(fullBudget.rateOfDay))
+          ? Number(fullBudget.rateOfDay).toFixed(2)
+          : '',
+      );
+      setCurrencies(Array.isArray(fullBudget.currencies) && fullBudget.currencies.length > 0 ? fullBudget.currencies : ['BS']);
+      setObservations(fullBudget.observations ?? '');
+      setPriority(fullBudget.priority ?? 'NORMAL');
+      setPaymentMethods(Array.isArray(fullBudget.paymentMethods) ? fullBudget.paymentMethods : []);
+      setDeliveryTime(fullBudget.deliveryTime ?? '');
+      setValidity(fullBudget.validity ?? '');
+      setEditModal({ id: b.id, budget: fullBudget });
+    } catch (e) {
+      setEditModal(null);
+      showActionModal('Error al cargar presupuesto', e instanceof Error ? e.message : 'Error al cargar presupuesto', 'error');
+    }
+  };
+
+  const handleUpdateBudget = async () => {
+    if (!companyId || !editModal) return;
+    let clientId = selectedClientId;
+    if (!clientId && canSubmitWithNewClient) {
+      setError('');
+      setSaving(true);
+      try {
+        const created = await clientsApi.create(companyId, {
+          name: clientForm.name.trim(),
+          address: clientForm.address?.trim() || undefined,
+          rifCedula: clientForm.rifCedula.trim(),
+          phone: clientForm.phone?.trim() || undefined,
+          email: clientForm.email?.trim() || undefined,
+        }) as any;
+        clientId = created.id;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Error al crear cliente');
+        setSaving(false);
+        return;
+      }
+    }
+    if (!clientId) {
+      setError('Cliente es obligatorio. Busca por RIF/Cédula o completa los datos si no está registrado.');
+      return;
+    }
+    if (items.length === 0) {
+      setError('Agrega al menos un producto.');
+      return;
+    }
+    if (isFieldVisible('title') && !title.trim()) {
+      setError('Título es obligatorio.');
+      return;
+    }
+    if (isFieldVisible('rateOfDay')) {
+      const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+      const hasForeign = !!foreign;
+      const hasRate = !!rateOfDay.trim() && !isNaN(Number(rateOfDay));
+      const hasConfigRate =
+        foreign === 'USD' ? config?.usdRate != null :
+        foreign === 'EUR' ? config?.eurRate != null :
+        false;
+
+      if (hasRate && !hasForeign) {
+        setError('Debes seleccionar USD o EUR cuando defines una tasa del día.');
+        return;
+      }
+      if (hasForeign && !(hasRate || hasConfigRate)) {
+        setError('Tasa del día es obligatoria cuando se selecciona USD o EUR.');
+        return;
+      }
+    }
+    if (isFieldVisible('priority') && isFieldRequired('priority') && !priority) {
+      setError('Prioridad es obligatoria.');
+      return;
+    }
+    if (isFieldVisible('paymentMethods') && isFieldRequired('paymentMethods') && paymentMethods.length === 0) {
+      setError('Forma de pago es obligatoria.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+      let effectiveRate: number | null = null;
+      if (isFieldVisible('rateOfDay')) {
+        if (rateOfDay.trim() && !isNaN(Number(rateOfDay))) {
+          effectiveRate = Number(rateOfDay);
+        } else if (foreign === 'USD' && config?.usdRate != null) {
+          effectiveRate = Number(config.usdRate);
+        } else if (foreign === 'EUR' && config?.eurRate != null) {
+          effectiveRate = Number(config.eurRate);
+        }
+      } else {
+        if (config?.usdRate != null) effectiveRate = Number(config.usdRate);
+        else if (config?.eurRate != null) effectiveRate = Number(config.eurRate);
+        else effectiveRate = 1;
+      }
+
+      await budgetsApi.update(editModal.id, companyId, {
+        title: (isFieldVisible('title') ? title.trim() : editModal.budget?.title) || 'Presupuesto',
+        clientId,
+        ivaPercent,
+        rateOfDay: effectiveRate ?? editModal.budget?.rateOfDay ?? 1,
+        currencies,
+        observations: isFieldVisible('observations') ? observations.trim() || undefined : editModal.budget?.observations,
+        priority: isFieldVisible('priority') ? priority : (editModal.budget?.priority ?? 'NORMAL'),
+        paymentMethods: isFieldVisible('paymentMethods') ? paymentMethods : (editModal.budget?.paymentMethods ?? []),
+        deliveryTime: isFieldVisible('deliveryTime') ? deliveryTime.trim() || undefined : editModal.budget?.deliveryTime,
+        validity: isFieldVisible('validity') ? validity.trim() || undefined : editModal.budget?.validity,
+        items: items.map((i) => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          sortOrder: i.sortOrder,
+          exentoIva: i.exentoIva,
+        })),
+      });
+      setEditModal(null);
+      loadList();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al guardar cambios');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -887,11 +1043,41 @@ export default function PresupuestosPage() {
                         <td className="p-3">{b.correlative}</td>
                         <td className="p-3">{b.title}</td>
                         <td className="p-3">{b.client?.name ?? '—'}</td>
-                        <td className="p-3 flex flex-wrap gap-1">
-                          <button type="button" onClick={() => handleDownloadPdf(b.id)} className="text-sm rounded px-2 py-1 bg-[var(--primary)] text-white">Descargar</button>
-                          <button type="button" onClick={() => setEditModal({ id: b.id, budget: b })} className="text-sm rounded px-2 py-1 bg-[var(--card-hover)]">Editar</button>
-                          <button type="button" onClick={() => setDuplicateModal({ id: b.id, budget: b })} className="text-sm rounded px-2 py-1 bg-[var(--alternative)] text-white">Duplicar</button>
-                          <button type="button" onClick={() => setDeleteModal({ id: b.id, correlative: b.correlative })} className="text-sm rounded px-2 py-1 bg-[var(--destructive)] text-white">Eliminar</button>
+                        <td className="p-3">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadPdf(b.id)}
+                              title="Descargar PDF"
+                              className="inline-flex items-center justify-center rounded-full bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white w-8 h-8 transition-colors"
+                            >
+                              <IconDownloadCloud className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(b)}
+                              title="Editar"
+                              className="inline-flex items-center justify-center rounded-full bg-[var(--card-hover)] text-[var(--foreground)] hover:bg-[var(--primary)] hover:text-white w-8 h-8 transition-colors"
+                            >
+                              <IconPencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDuplicateModal({ id: b.id, budget: b })}
+                              title="Duplicar"
+                              className="inline-flex items-center justify-center rounded-full bg-[var(--alternative)]/10 text-[var(--alternative)] hover:bg-[var(--alternative)] hover:text-white w-8 h-8 transition-colors"
+                            >
+                              <IconCopy className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteModal({ id: b.id, correlative: b.correlative })}
+                              title="Eliminar"
+                              className="inline-flex items-center justify-center rounded-full bg-[var(--destructive)]/10 text-[var(--destructive)] hover:bg-[var(--destructive)] hover:text-white w-8 h-8 transition-colors"
+                            >
+                              <IconTrash className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -924,10 +1110,269 @@ export default function PresupuestosPage() {
           )}
           {editModal && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditModal(null)}>
-              <div className="bg-[var(--card)] rounded-xl p-6 max-w-lg w-full border border-[var(--border)] max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-                <p className="font-medium">Editar presupuesto {editModal.budget?.correlative}</p>
-                <p className="text-sm text-[var(--muted)] mt-1">En esta versión solo puedes descargar el PDF. La edición completa se implementará próximamente.</p>
-                <button type="button" onClick={() => setEditModal(null)} className="mt-4 rounded-lg bg-[var(--card-hover)] px-4 py-2">Cerrar</button>
+              <div className="bg-[var(--card)] rounded-xl p-6 max-w-4xl w-full border border-[var(--border)] max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+                <h2 className="text-2xl font-extrabold text-red-600 text-center mb-1">
+                  Presupuesto {editModal.budget?.correlative ?? ''}
+                </h2>
+                <p className="text-sm text-[var(--muted)] mb-4 text-center">Edición rápida del presupuesto seleccionado.</p>
+
+                <div className="space-y-4">
+                  {isFieldVisible('title') && (
+                    <section className="p-4 rounded-lg bg-[var(--background)] border border-[var(--border)]">
+                      <h3 className="font-semibold text-[var(--foreground)] mb-2">Título</h3>
+                      <input
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="Título"
+                        className="w-full rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
+                      />
+                    </section>
+                  )}
+
+                  <section className="p-4 rounded-lg bg-[var(--background)] border border-[var(--border)]">
+                    <h3 className="font-semibold text-[var(--foreground)] mb-2">Cliente</h3>
+                    {clientSearchResult && clientSearchResult !== 'loading' && clientSearchResult !== 'not-found' ? (
+                      <div className="text-sm">
+                        <p className="font-medium">{clientSearchResult.name}</p>
+                        <p className="text-[var(--muted)]">RIF/Cédula: {clientSearchResult.rifCedula}</p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-[var(--muted)]">Cliente asociado al presupuesto.</p>
+                    )}
+                  </section>
+
+                  <section className="p-4 rounded-lg bg-[var(--background)] border border-[var(--border)]">
+                    <h3 className="font-semibold text-[var(--foreground)] mb-2">Productos</h3>
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        ref={productCodeInputRef}
+                        value={productCodeInput}
+                        onChange={(e) => setProductCodeInput(e.target.value)}
+                        onKeyDown={handleProductCodeKeyDown}
+                        placeholder="Código del producto (Enter para buscar y agregar)"
+                        className="flex-1 rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={openProductSearchModal}
+                        title="Buscar producto por código o nombre"
+                        className="rounded-lg bg-[var(--card)] border border-[var(--border)] p-2 text-[var(--muted)] hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]"
+                      >
+                        <IconSearch className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-[var(--muted)]">
+                            <th className="p-2">COD</th>
+                            <th className="p-2">Nombre</th>
+                            <th className="p-2">Cant.</th>
+                            <th className="p-2">P. unit. ({displaySymbol})</th>
+                            <th className="p-2">Total ({displaySymbol})</th>
+                            <th className="p-2">IVA ({displaySymbol})</th>
+                            <th className="p-2"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map((it, idx) => {
+                            const lineTotalBs = (it.quantity ?? 0) * (it.unitPrice ?? 0);
+                            const lineIvaBs = it.exentoIva ? 0 : (lineTotalBs * ivaPercent) / 100;
+                            const unitDisplay = displayCurrency === 'BS' ? (it.unitPrice ?? 0) : (it.unitPrice ?? 0) / displayRate;
+                            const lineTotalDisplay = displayCurrency === 'BS' ? lineTotalBs : lineTotalBs / displayRate;
+                            const lineIvaDisplay = displayCurrency === 'BS' ? lineIvaBs : lineIvaBs / displayRate;
+                            return (
+                              <tr key={it.productId} className="border-t border-[var(--border)]">
+                                <td className="p-2">{it.code}</td>
+                                <td className="p-2">{it.name}</td>
+                                <td className="p-2">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={it.quantity}
+                                    onChange={(e) => updateItem(it.productId, { quantity: Number(e.target.value) || 1 })}
+                                    className="w-16 rounded bg-[var(--card)] border border-[var(--border)] px-2 py-1"
+                                  />
+                                </td>
+                                <td className="p-2 text-right tabular-nums">{unitDisplay.toFixed(2)}</td>
+                                <td className="p-2 text-right tabular-nums">{lineTotalDisplay.toFixed(2)}</td>
+                                <td className="p-2 text-right tabular-nums text-[var(--muted)]">{it.exentoIva ? '—' : lineIvaDisplay.toFixed(2)}</td>
+                                <td className="p-2">
+                                  <button type="button" onClick={() => moveItem(it.productId, 'up')} disabled={idx === 0} className="mr-1 text-[var(--muted)] disabled:opacity-50">↑</button>
+                                  <button type="button" onClick={() => moveItem(it.productId, 'down')} disabled={idx === items.length - 1} className="mr-1 text-[var(--muted)] disabled:opacity-50">↓</button>
+                                  <button type="button" onClick={() => removeItem(it.productId)} className="text-[var(--destructive)]">Quitar</button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+
+                  {items.length > 0 && (
+                    <section className="p-4 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm space-y-1">
+                      {(() => {
+                        const defaultCurrency = getDefaultCurrencyFromConfig(config) ?? 'BS';
+                        const usdRate = rateOfDay && !isNaN(Number(rateOfDay)) ? Number(rateOfDay) : config?.usdRate;
+                        const eurRate = config?.eurRate;
+                        const onlyUsd = currencies.length === 1 && currencies[0] === 'USD';
+                        const onlyEur = currencies.length === 1 && currencies[0] === 'EUR';
+                        const displayInUsd = onlyUsd && usdRate;
+                        const displayInEur = onlyEur && eurRate;
+                        const baseCurrency: 'USD' | 'EUR' | 'BS' = displayInUsd ? 'USD' : displayInEur ? 'EUR' : defaultCurrency;
+                        const baseLabel = baseCurrency === 'BS' ? 'Bs.' : baseCurrency === 'USD' ? '$' : '€';
+                        const displayRateSummary = displayInUsd ? usdRate : displayInEur ? eurRate : 1;
+
+                        const cantidadProductos = items.reduce((s, i) => s + (i.quantity ?? 0), 0);
+                        const subtotalSinIvaBs = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                        const subtotalConIvaBs = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                        const ivaMontoBs = (subtotalConIvaBs * ivaPercent) / 100;
+                        const totalBs = subtotalSinIvaBs + subtotalConIvaBs + ivaMontoBs;
+                        const toDisplay = (x: number) => (baseCurrency === 'BS' ? x : x / (displayRateSummary || 1));
+                        const subtotalSinIva = toDisplay(subtotalSinIvaBs);
+                        const subtotalConIva = toDisplay(subtotalConIvaBs);
+                        const ivaMonto = toDisplay(ivaMontoBs);
+                        const total = toDisplay(totalBs);
+                        return (
+                          <>
+                            <p className="text-[var(--muted)]">Cantidad de productos: <strong className="text-[var(--foreground)]">{cantidadProductos}</strong></p>
+                            <p className="text-[var(--foreground)]">Subtotal (sin IVA): <strong>{subtotalSinIva.toFixed(2)}</strong> {baseLabel}</p>
+                            <p className="text-[var(--foreground)]">Subtotal (con IVA): <strong>{subtotalConIva.toFixed(2)}</strong> {baseLabel}</p>
+                            <p className="text-[var(--foreground)]">IVA ({ivaPercent}%): <strong>{ivaMonto.toFixed(2)}</strong> {baseLabel}</p>
+                            <p className="text-[var(--foreground)] font-medium">Total: <strong>{total.toFixed(2)}</strong> {baseLabel}</p>
+                          </>
+                        );
+                      })()}
+                    </section>
+                  )}
+
+                  <section className="p-4 rounded-lg bg-[var(--background)] border border-[var(--border)]">
+                    <h3 className="font-semibold text-[var(--foreground)] mb-2">Configuración</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-[var(--muted)] mb-1">IVA (%)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={ivaPercent}
+                          onChange={(e) => setIvaPercent(Number(e.target.value))}
+                          className="w-full rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
+                        />
+                      </div>
+                      {isFieldVisible('rateOfDay') && (
+                        <div>
+                          <label className="block text-sm text-[var(--muted)] mb-1">Tasa del día</label>
+                          <input
+                            value={rateOfDay}
+                            onChange={(e) => setRateOfDay(e.target.value)}
+                            placeholder="Ej: 36.5"
+                            className="w-full rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
+                            readOnly={rateLockedFromConfig}
+                            disabled={rateLockedFromConfig}
+                          />
+                          {rateLockedFromConfig && (
+                            <p className="text-xs text-[var(--muted)] mt-1">
+                              Tasa tomada de Configuración (solo lectura).
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      <div>
+                        <label className="block text-sm text-[var(--muted)] mb-1">Moneda(s)</label>
+                        <div className="flex gap-2 flex-wrap">
+                          {CURRENCY_OPTIONS.map((c) => (
+                            <label key={c} className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={currencies.includes(c)}
+                                onChange={() => toggleCurrency(c)}
+                              />
+                              <span>{c}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      {isFieldVisible('priority') && (
+                        <div>
+                          <label className="block text-sm text-[var(--muted)] mb-1">Prioridad</label>
+                          <select
+                            value={priority}
+                            onChange={(e) => setPriority(e.target.value as 'NORMAL' | 'URGENT')}
+                            className="w-full rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
+                          >
+                            <option value="NORMAL">Normal</option>
+                            <option value="URGENT">Urgente</option>
+                          </select>
+                        </div>
+                      )}
+                      {isFieldVisible('paymentMethods') && (
+                        <div>
+                          <label className="block text-sm text-[var(--muted)] mb-1">Forma(s) de pago</label>
+                          <div className="flex flex-wrap gap-2">
+                            {PAYMENT_OPTIONS.map((p) => (
+                              <label key={p} className="flex items-center gap-1">
+                                <input
+                                  type="checkbox"
+                                  checked={paymentMethods.includes(p)}
+                                  onChange={() => togglePayment(p)}
+                                />
+                                <span>{p}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {isFieldVisible('deliveryTime') && (
+                        <div>
+                          <label className="block text-sm text-[var(--muted)] mb-1">Tiempo de entrega</label>
+                          <input
+                            value={deliveryTime}
+                            onChange={(e) => setDeliveryTime(e.target.value)}
+                            placeholder="Ej: 3 días hábiles"
+                            className="w-full rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
+                          />
+                        </div>
+                      )}
+                      {isFieldVisible('validity') && (
+                        <div>
+                          <label className="block text-sm text-[var(--muted)] mb-1">Validez</label>
+                          <input
+                            value={validity}
+                            onChange={(e) => setValidity(e.target.value)}
+                            placeholder="Ej: Válido por 15 días"
+                            className="w-full rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  {isFieldVisible('observations') && (
+                    <section className="p-4 rounded-lg bg-[var(--background)] border border-[var(--border)]">
+                      <h3 className="font-semibold text-[var(--foreground)] mb-2">Observaciones</h3>
+                      <textarea
+                        value={observations}
+                        onChange={(e) => setObservations(e.target.value)}
+                        rows={3}
+                        className="w-full rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
+                        placeholder="Condiciones, notas adicionales, etc."
+                      />
+                    </section>
+                  )}
+                </div>
+
+                {error && <p className="mt-4 text-sm text-[var(--destructive)]">{error}</p>}
+
+                <div className="flex justify-end gap-2 mt-6">
+                  <button type="button" onClick={() => setEditModal(null)} className="rounded-lg bg-[var(--card-hover)] px-4 py-2">
+                    Cancelar
+                  </button>
+                  <button type="button" onClick={handleUpdateBudget} disabled={saving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 disabled:opacity-50">
+                    {saving ? 'Guardando...' : 'Guardar cambios'}
+                  </button>
+                </div>
               </div>
             </div>
           )}
