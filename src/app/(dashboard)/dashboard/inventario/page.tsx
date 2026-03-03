@@ -20,6 +20,7 @@ export default function InventarioPage() {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [exentoIva, setExentoIva] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
 
   const [searchQ, setSearchQ] = useState('');
@@ -78,10 +79,11 @@ export default function InventarioPage() {
     if (!companyId || !code.trim() || !name.trim()) return;
     setAddSaving(true);
     try {
-      await productsApi.create(companyId, { code: code.trim(), name: name.trim(), description: description.trim() || undefined });
+      await productsApi.create(companyId, { code: code.trim(), name: name.trim(), description: description.trim() || undefined, exentoIva });
       setCode('');
       setName('');
       setDescription('');
+      setExentoIva(false);
       loadProducts();
       showActionModal('Producto agregado', 'El producto se ha registrado correctamente en el inventario.', 'success');
     } catch (e) {
@@ -214,6 +216,10 @@ export default function InventarioPage() {
                 <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Código *" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre *" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descripción" rows={2} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={exentoIva} onChange={(e) => setExentoIva(e.target.checked)} className="rounded border-[var(--border)]" />
+                  <span className="text-sm text-[var(--foreground)]">Exento de IVA</span>
+                </label>
                 <button type="button" onClick={handleAddProduct} disabled={addSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 disabled:opacity-50">{addSaving ? 'Guardando...' : 'Agregar'}</button>
               </div>
             </div>

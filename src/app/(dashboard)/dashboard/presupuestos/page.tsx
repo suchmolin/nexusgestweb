@@ -12,7 +12,7 @@ function getCompanyId(user: { role: string; companyId: string | null }, selected
   return user.role === 'SUPER_ADMIN' ? selected : user.companyId;
 }
 
-type BudgetItemRow = { productId: string; code: string; name: string; description?: string; stock?: number; quantity: number; unitPrice: number; sortOrder: number };
+type BudgetItemRow = { productId: string; code: string; name: string; description?: string; stock?: number; quantity: number; unitPrice: number; sortOrder: number; exentoIva: boolean };
 
 export default function PresupuestosPage() {
   const { user } = useAuth();
@@ -47,6 +47,7 @@ export default function PresupuestosPage() {
   const cancelProductNotFoundRef = useRef<HTMLButtonElement>(null);
   const productCodeInputRef = useRef<HTMLInputElement>(null);
   const [newProductForm, setNewProductForm] = useState({ code: '', name: '', description: '' });
+  const [newProductExentoIva, setNewProductExentoIva] = useState(false);
   const [newIngresoForm, setNewIngresoForm] = useState({ quantity: '', unitCost: '', salePrice: '', observation: '' });
   const [registerProductSaving, setRegisterProductSaving] = useState(false);
   const [registerProductError, setRegisterProductError] = useState('');
@@ -117,6 +118,7 @@ export default function PresupuestosPage() {
 
   const openRegisterProductModal = () => {
     setNewProductForm({ code: productNotFoundModal.code, name: '', description: '' });
+    setNewProductExentoIva(false);
     setNewIngresoForm({ quantity: '', unitCost: '', salePrice: '', observation: '' });
     setRegisterProductError('');
     setRegisterProductModal(true);
@@ -140,6 +142,7 @@ export default function PresupuestosPage() {
         code: newProductForm.code.trim(),
         name: newProductForm.name.trim(),
         description: newProductForm.description.trim() || undefined,
+        exentoIva: newProductExentoIva,
       }) as any;
       let unitPrice = 0;
       if (qty > 0) {
@@ -163,6 +166,7 @@ export default function PresupuestosPage() {
           quantity: 1,
           unitPrice,
           sortOrder: prev.length + 1,
+          exentoIva: newProductExentoIva,
         },
       ]);
       setProductCodeInput('');
@@ -202,7 +206,7 @@ export default function PresupuestosPage() {
     e.preventDefault();
     try {
       const list = await productsApi.search(companyId, productCodeInput.trim());
-      const prod = (list as any[])[0];
+      const prod = (list as any[]).find((p: any) => String(p.code || '').trim() === productCodeInput.trim()) ?? null;
       if (!prod) {
         setProductNotFoundModal({ open: true, code: productCodeInput.trim() });
         return;
@@ -223,6 +227,7 @@ export default function PresupuestosPage() {
             quantity: 1,
             unitPrice,
             sortOrder: prev.length + 1,
+            exentoIva: prod.exentoIva ?? false,
           },
         ]);
       }
@@ -333,7 +338,7 @@ export default function PresupuestosPage() {
         paymentMethods: isFieldVisible('paymentMethods') ? paymentMethods : [],
         deliveryTime: isFieldVisible('deliveryTime') ? deliveryTime.trim() || undefined : undefined,
         validity: isFieldVisible('validity') ? validity.trim() || undefined : undefined,
-        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder })),
+        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder, exentoIva: i.exentoIva })),
       });
       setTab('list');
       loadList();
@@ -501,11 +506,15 @@ export default function PresupuestosPage() {
                         <th className="p-2">Cant.</th>
                         <th className="p-2">P. unit.</th>
                         <th className="p-2">Total</th>
+                        <th className="p-2">IVA</th>
                         <th className="p-2"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((it, idx) => (
+                      {items.map((it, idx) => {
+                        const lineTotal = (it.quantity ?? 0) * (it.unitPrice ?? 0);
+                        const lineIva = it.exentoIva ? 0 : (lineTotal * ivaPercent) / 100;
+                        return (
                         <tr key={it.productId} className="border-t border-[var(--border)]">
                           <td className="p-2">{it.code}</td>
                           <td className="p-2">{it.name}</td>
@@ -519,14 +528,15 @@ export default function PresupuestosPage() {
                             />
                           </td>
                           <td className="p-2 text-right tabular-nums">{(it.unitPrice ?? 0).toFixed(2)}</td>
-                          <td className="p-2 text-right tabular-nums">{((it.quantity ?? 0) * (it.unitPrice ?? 0)).toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums">{lineTotal.toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums text-[var(--muted)]">{it.exentoIva ? '—' : lineIva.toFixed(2)}</td>
                           <td className="p-2">
                             <button type="button" onClick={() => moveItem(it.productId, 'up')} disabled={idx === 0} className="mr-1 text-[var(--muted)] disabled:opacity-50">↑</button>
                             <button type="button" onClick={() => moveItem(it.productId, 'down')} disabled={idx === items.length - 1} className="mr-1 text-[var(--muted)] disabled:opacity-50">↓</button>
                             <button type="button" onClick={() => removeItem(it.productId)} className="text-[var(--destructive)]">Quitar</button>
                           </td>
                         </tr>
-                      ))}
+                      ); })}
                     </tbody>
                   </table>
                 </div>
@@ -534,21 +544,23 @@ export default function PresupuestosPage() {
                   <div className="mt-3 p-3 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm space-y-1">
                     {(() => {
                       const cantidadProductos = items.reduce((s, i) => s + (i.quantity ?? 0), 0);
-                      const subtotalBs = items.reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
-                      const ivaMonto = subtotalBs * (ivaPercent / 100);
-                      const totalBs = subtotalBs + ivaMonto;
+                      const subtotalSinIva = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                      const subtotalConIva = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                      const ivaMonto = (subtotalConIva * ivaPercent) / 100;
+                      const total = subtotalSinIva + subtotalConIva + ivaMonto;
                       const rate = rateOfDay && !isNaN(Number(rateOfDay)) ? Number(rateOfDay) : config?.usdRate;
                       return (
                         <>
                           <p className="text-[var(--muted)]">Cantidad de productos: <strong className="text-[var(--foreground)]">{cantidadProductos}</strong></p>
-                          <p className="text-[var(--foreground)]">Subtotal: <strong>{subtotalBs.toFixed(2)}</strong> Bs.</p>
+                          <p className="text-[var(--foreground)]">Subtotal (sin IVA): <strong>{subtotalSinIva.toFixed(2)}</strong> Bs.</p>
+                          <p className="text-[var(--foreground)]">Subtotal (con IVA): <strong>{subtotalConIva.toFixed(2)}</strong> Bs.</p>
                           <p className="text-[var(--foreground)]">IVA ({ivaPercent}%): <strong>{ivaMonto.toFixed(2)}</strong> Bs.</p>
-                          <p className="text-[var(--foreground)] font-medium">Total Bs.: <strong>{totalBs.toFixed(2)}</strong> Bs.</p>
+                          <p className="text-[var(--foreground)] font-medium">Total: <strong>{total.toFixed(2)}</strong> Bs.</p>
                           {currencies.includes('USD') && rate && rate > 0 && (
-                            <p className="text-[var(--muted)]">Total USD (tasa {rate}): <strong>{(totalBs / rate).toFixed(2)}</strong> USD</p>
+                            <p className="text-[var(--muted)]">Equivalente en USD (tasa {rate}): <strong>{(total / rate).toFixed(2)}</strong> USD</p>
                           )}
                           {currencies.includes('EUR') && config?.eurRate && config.eurRate > 0 && (
-                            <p className="text-[var(--muted)]">Total EUR (tasa {config.eurRate}): <strong>{(totalBs / config.eurRate).toFixed(2)}</strong> EUR</p>
+                            <p className="text-[var(--muted)]">Equivalente en EUR (tasa {config.eurRate}): <strong>{(total / config.eurRate).toFixed(2)}</strong> EUR</p>
                           )}
                         </>
                       );
@@ -772,6 +784,10 @@ export default function PresupuestosPage() {
                   <label className="block text-sm text-[var(--muted)] mb-1">Descripción</label>
                   <textarea value={newProductForm.description} onChange={(e) => setNewProductForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" placeholder="Descripción" />
                 </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={newProductExentoIva} onChange={(e) => setNewProductExentoIva(e.target.checked)} className="rounded border-[var(--border)]" />
+                  <span className="text-sm text-[var(--foreground)]">Exento de IVA</span>
+                </label>
               </div>
             </div>
 

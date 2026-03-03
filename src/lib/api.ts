@@ -96,7 +96,7 @@ export const productsApi = {
       params: { companyId, ...(page && { page: String(page) }), ...(limit && { limit: String(limit) }), ...(code && { code }), ...(name && { name }), ...(from && { from }) },
     }),
   get: (id: string, companyId: string) => api<unknown>(`/products/${id}`, { params: { companyId } }),
-  create: (companyId: string, data: { code: string; name: string; description?: string }) =>
+  create: (companyId: string, data: { code: string; name: string; description?: string; exentoIva?: boolean }) =>
     api<unknown>('/products', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
   delete: (id: string, companyId: string) =>
     api<unknown>(`/products/${id}`, { method: 'DELETE', params: { companyId } }),
