@@ -140,6 +140,7 @@ export default function InventarioPage() {
       setEgresoReason('');
       setEgresoObservation('');
       loadProducts();
+      showActionModal('Egreso registrado', 'El egreso se ha realizado satisfactoriamente.', 'success');
     } catch (e) {
       showActionModal('Error al registrar egreso', e instanceof Error ? e.message : 'Error al registrar egreso', 'error');
     } finally {
