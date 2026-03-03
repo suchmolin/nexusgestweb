@@ -4,9 +4,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { invoicesApi, budgetsApi, clientsApi, productsApi, companiesApi, configApi, inventoryApi } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
+import { IconSearch, IconX } from '@/components/Icons';
 
 const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', 'ZELLE'];
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
+const PRODUCT_SEARCH_DEBOUNCE_MS = 280;
 
 type InvoiceItemRow = { productId: string; code: string; name: string; quantity: number; unitPrice: number; sortOrder: number; exentoIva: boolean };
 
@@ -54,6 +56,13 @@ export default function FacturacionPage() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [productCodeInput, setProductCodeInput] = useState('');
   const [items, setItems] = useState<InvoiceItemRow[]>([]);
+  const [productSearchModalOpen, setProductSearchModalOpen] = useState(false);
+  const [productSearchModalQuery, setProductSearchModalQuery] = useState('');
+  const [productSearchModalResults, setProductSearchModalResults] = useState<any[]>([]);
+  const [productSearchModalHighlightedIndex, setProductSearchModalHighlightedIndex] = useState(0);
+  const [productSearchModalLoading, setProductSearchModalLoading] = useState(false);
+  const productSearchModalDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const productSearchModalInputRef = useRef<HTMLInputElement>(null);
   const [ivaPercent, setIvaPercent] = useState(12);
   const [rateOfDay, setRateOfDay] = useState('');
   const [currencies, setCurrencies] = useState<string[]>(['BS']);
@@ -202,6 +211,16 @@ export default function FacturacionPage() {
   const canSubmitWithNewClient = isClientNotFound && clientForm.name.trim() && clientForm.rifCedula.trim();
   const hasValidClient = !!selectedClientId || canSubmitWithNewClient;
 
+  const addProductToItems = useCallback((prod: any) => {
+    const unitPrice = Number(prod.salePrice) || 0;
+    const existing = items.find((i) => i.productId === prod.id);
+    if (existing) {
+      setItems((prev) => prev.map((i) => i.productId === prod.id ? { ...i, quantity: i.quantity + 1 } : i));
+    } else {
+      setItems((prev) => [...prev, { productId: prod.id, code: prod.code, name: prod.name, quantity: 1, unitPrice, sortOrder: prev.length + 1, exentoIva: prod.exentoIva ?? false }]);
+    }
+  }, [items]);
+
   const handleProductCodeKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' || !companyId || !productCodeInput.trim()) return;
     e.preventDefault();
@@ -212,15 +231,73 @@ export default function FacturacionPage() {
         setProductNotFoundModal({ open: true, code: productCodeInput.trim() });
         return;
       }
-      const existing = items.find((i) => i.productId === prod.id);
-      const unitPrice = Number(prod.salePrice) || 0;
-      if (existing) {
-        setItems((prev) => prev.map((i) => i.productId === prod.id ? { ...i, quantity: i.quantity + 1 } : i));
-      } else {
-        setItems((prev) => [...prev, { productId: prod.id, code: prod.code, name: prod.name, quantity: 1, unitPrice, sortOrder: prev.length + 1, exentoIva: prod.exentoIva ?? false }]);
-      }
+      addProductToItems(prod);
       setProductCodeInput('');
     } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    if (!productSearchModalOpen || !companyId) return;
+    if (!productSearchModalQuery.trim()) {
+      setProductSearchModalResults([]);
+      return;
+    }
+    if (productSearchModalDebounceRef.current) clearTimeout(productSearchModalDebounceRef.current);
+    productSearchModalDebounceRef.current = setTimeout(() => {
+      setProductSearchModalLoading(true);
+      productsApi.search(companyId, productSearchModalQuery.trim()).then((list) => {
+        setProductSearchModalResults((list as any[]) || []);
+        setProductSearchModalHighlightedIndex(0);
+      }).catch(() => setProductSearchModalResults([])).finally(() => setProductSearchModalLoading(false));
+    }, PRODUCT_SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (productSearchModalDebounceRef.current) clearTimeout(productSearchModalDebounceRef.current);
+    };
+  }, [productSearchModalOpen, productSearchModalQuery, companyId]);
+
+  const openProductSearchModal = () => {
+    setProductSearchModalOpen(true);
+    setProductSearchModalQuery('');
+    setProductSearchModalResults([]);
+    setProductSearchModalHighlightedIndex(0);
+    setTimeout(() => productSearchModalInputRef.current?.focus(), 100);
+  };
+
+  const closeProductSearchModal = () => {
+    setProductSearchModalOpen(false);
+    setProductSearchModalQuery('');
+    setProductSearchModalResults([]);
+  };
+
+  const selectProductFromSearch = (prod: any) => {
+    addProductToItems(prod);
+    closeProductSearchModal();
+  };
+
+  const handleProductSearchModalKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeProductSearchModal();
+      return;
+    }
+    if (productSearchModalResults.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setProductSearchModalHighlightedIndex((i) => Math.min(i + 1, productSearchModalResults.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setProductSearchModalHighlightedIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const prod = productSearchModalResults[productSearchModalHighlightedIndex];
+        if (prod) selectProductFromSearch(prod);
+        return;
+      }
+    }
   };
 
   const updateItem = (productId: string, upd: Partial<InvoiceItemRow>) => {
@@ -527,7 +604,24 @@ export default function FacturacionPage() {
               </section>
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Productos</h2>
-                <input ref={productCodeInputRef} value={productCodeInput} onChange={(e) => setProductCodeInput(e.target.value)} onKeyDown={handleProductCodeKeyDown} placeholder="Código del producto (Enter para buscar y agregar)" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 mb-3" />
+                <div className="flex gap-2 mb-3">
+                  <input
+                    ref={productCodeInputRef}
+                    value={productCodeInput}
+                    onChange={(e) => setProductCodeInput(e.target.value)}
+                    onKeyDown={handleProductCodeKeyDown}
+                    placeholder="Código del producto (Enter para buscar y agregar)"
+                    className="flex-1 rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2"
+                  />
+                  <button
+                    type="button"
+                    onClick={openProductSearchModal}
+                    title="Buscar producto por código o nombre"
+                    className="rounded-lg bg-[var(--background)] border border-[var(--border)] p-2 text-[var(--muted)] hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]"
+                  >
+                    <IconSearch className="w-5 h-5" />
+                  </button>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead><tr className="text-left text-[var(--muted)]"><th className="p-2">COD</th><th className="p-2">Nombre</th><th className="p-2">Cant.</th><th className="p-2">P. unit.</th><th className="p-2">Total</th><th className="p-2">IVA</th><th className="p-2"></th></tr></thead>
@@ -749,6 +843,55 @@ export default function FacturacionPage() {
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setRegisterProductModal(false)} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 font-medium">Cancelar</button>
               <button type="button" onClick={handleRegisterProductSubmit} disabled={registerProductSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 font-medium disabled:opacity-50">{registerProductSaving ? 'Guardando...' : 'Guardar y agregar a la factura'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {productSearchModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="product-search-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between gap-2">
+              <h2 id="product-search-modal-title" className="font-semibold text-[var(--foreground)]">Buscar producto</h2>
+              <button type="button" onClick={closeProductSearchModal} className="p-1 rounded text-[var(--muted)] hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]" aria-label="Cerrar">
+                <IconX className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4">
+              <input
+                ref={productSearchModalInputRef}
+                value={productSearchModalQuery}
+                onChange={(e) => setProductSearchModalQuery(e.target.value)}
+                onKeyDown={handleProductSearchModalKeyDown}
+                placeholder="Código o nombre del producto"
+                className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 mb-3"
+              />
+              {productSearchModalLoading && <p className="text-sm text-[var(--muted)] mb-2">Buscando...</p>}
+            </div>
+            <div className="flex-1 overflow-y-auto min-h-0 px-4 pb-4">
+              {!productSearchModalQuery.trim() && (
+                <p className="text-sm text-[var(--muted)]">Escribe código o nombre para buscar.</p>
+              )}
+              {productSearchModalQuery.trim() && productSearchModalResults.length === 0 && !productSearchModalLoading && (
+                <p className="text-sm text-[var(--muted)]">Sin coincidencias.</p>
+              )}
+              {productSearchModalResults.length > 0 && (
+                <ul className="border border-[var(--border)] rounded-lg overflow-hidden">
+                  {productSearchModalResults.map((prod: any, idx: number) => (
+                    <li key={prod.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); selectProductFromSearch(prod); }}
+                        className={`w-full text-left px-3 py-2.5 text-sm border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--card-hover)] flex flex-wrap items-baseline gap-x-2 ${idx === productSearchModalHighlightedIndex ? 'bg-[var(--card-hover)]' : ''}`}
+                      >
+                        <span className="font-medium">{prod.code}</span>
+                        <span className="text-[var(--muted)]">{prod.name}</span>
+                        {prod.salePrice != null && <span className="text-[var(--muted)] tabular-nums">{(Number(prod.salePrice)).toFixed(2)} Bs.</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
