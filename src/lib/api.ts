@@ -1,4 +1,5 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const raw = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null;
