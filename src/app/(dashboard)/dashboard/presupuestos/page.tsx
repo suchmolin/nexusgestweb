@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { budgetsApi, clientsApi, productsApi, companiesApi, configApi } from '@/lib/api';
+import { budgetsApi, clientsApi, productsApi, companiesApi, configApi, inventoryApi } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 
 const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', 'ZELLE'];
@@ -41,6 +41,15 @@ export default function PresupuestosPage() {
   const [validity, setValidity] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const [productNotFoundModal, setProductNotFoundModal] = useState<{ open: boolean; code: string }>({ open: false, code: '' });
+  const [registerProductModal, setRegisterProductModal] = useState(false);
+  const cancelProductNotFoundRef = useRef<HTMLButtonElement>(null);
+  const productCodeInputRef = useRef<HTMLInputElement>(null);
+  const [newProductForm, setNewProductForm] = useState({ code: '', name: '', description: '' });
+  const [newIngresoForm, setNewIngresoForm] = useState({ quantity: '', unitCost: '', salePrice: '', observation: '' });
+  const [registerProductSaving, setRegisterProductSaving] = useState(false);
+  const [registerProductError, setRegisterProductError] = useState('');
 
   const [list, setList] = useState<{ items: any[]; total: number }>({ items: [], total: 0 });
   const [page, setPage] = useState(1);
@@ -91,6 +100,79 @@ export default function PresupuestosPage() {
 
   useEffect(() => { loadList(); }, [loadList]);
 
+  useEffect(() => {
+    if (productNotFoundModal.open && cancelProductNotFoundRef.current) {
+      cancelProductNotFoundRef.current.focus();
+    }
+  }, [productNotFoundModal.open]);
+
+  const closeProductNotFoundModal = () => {
+    setProductNotFoundModal({ open: false, code: '' });
+    setTimeout(() => {
+      productCodeInputRef.current?.focus();
+      productCodeInputRef.current?.select();
+    }, 0);
+  };
+
+  const openRegisterProductModal = () => {
+    setNewProductForm({ code: productNotFoundModal.code, name: '', description: '' });
+    setNewIngresoForm({ quantity: '', unitCost: '', salePrice: '', observation: '' });
+    setRegisterProductError('');
+    setRegisterProductModal(true);
+    setProductNotFoundModal({ open: false, code: '' });
+  };
+
+  const handleRegisterProductSubmit = async () => {
+    if (!companyId || !newProductForm.code.trim() || !newProductForm.name.trim()) {
+      setRegisterProductError('Código y nombre del producto son obligatorios.');
+      return;
+    }
+    const qty = newIngresoForm.quantity.trim() ? Number(newIngresoForm.quantity) : 0;
+    if (qty < 0) {
+      setRegisterProductError('La cantidad del ingreso no puede ser negativa.');
+      return;
+    }
+    setRegisterProductSaving(true);
+    setRegisterProductError('');
+    try {
+      const created = await productsApi.create(companyId, {
+        code: newProductForm.code.trim(),
+        name: newProductForm.name.trim(),
+        description: newProductForm.description.trim() || undefined,
+      }) as any;
+      let unitPrice = 0;
+      if (qty > 0) {
+        await inventoryApi.ingress(companyId, {
+          productId: created.id,
+          quantity: qty,
+          unitCost: newIngresoForm.unitCost.trim() ? Number(newIngresoForm.unitCost) : undefined,
+          salePrice: newIngresoForm.salePrice.trim() ? Number(newIngresoForm.salePrice) : undefined,
+          observation: newIngresoForm.observation.trim() || undefined,
+        });
+        unitPrice = newIngresoForm.salePrice.trim() ? Number(newIngresoForm.salePrice) : 0;
+      }
+      setItems((prev) => [
+        ...prev,
+        {
+          productId: created.id,
+          code: created.code,
+          name: created.name,
+          description: created.description,
+          stock: qty,
+          quantity: 1,
+          unitPrice,
+          sortOrder: prev.length + 1,
+        },
+      ]);
+      setProductCodeInput('');
+      setRegisterProductModal(false);
+    } catch (e) {
+      setRegisterProductError(e instanceof Error ? e.message : 'Error al registrar producto');
+    } finally {
+      setRegisterProductSaving(false);
+    }
+  };
+
   const handleSearchClient = async () => {
     if (!companyId || !clientRif.trim()) return;
     setClientSearchResult('loading');
@@ -120,7 +202,10 @@ export default function PresupuestosPage() {
     try {
       const list = await productsApi.search(companyId, productCodeInput.trim());
       const prod = (list as any[])[0];
-      if (!prod) return;
+      if (!prod) {
+        setProductNotFoundModal({ open: true, code: productCodeInput.trim() });
+        return;
+      }
       const existing = items.find((i) => i.productId === prod.id);
       const unitPrice = Number(prod.salePrice) || 0;
       if (existing) {
@@ -399,6 +484,7 @@ export default function PresupuestosPage() {
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Productos</h2>
                 <input
+                  ref={productCodeInputRef}
                   value={productCodeInput}
                   onChange={(e) => setProductCodeInput(e.target.value)}
                   onKeyDown={handleProductCodeKeyDown}
@@ -639,6 +725,88 @@ export default function PresupuestosPage() {
           )}
         </>
       )}
+
+      {/* Modal: producto no encontrado */}
+      {productNotFoundModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="product-not-found-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="product-not-found-title" className="font-semibold text-[var(--foreground)] text-lg mb-2">Artículo no encontrado</h2>
+            <p className="text-sm text-[var(--muted)] mb-4">Ese artículo no se encuentra registrado.</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                ref={cancelProductNotFoundRef}
+                onClick={closeProductNotFoundModal}
+                onKeyDown={(e) => e.key === 'Enter' && closeProductNotFoundModal()}
+                className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 font-medium"
+              >
+                Cancelar
+              </button>
+              <button type="button" onClick={openRegisterProductModal} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 font-medium">
+                Registrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: registrar producto + ingreso */}
+      {registerProductModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="register-product-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-lg w-full my-8 p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="register-product-title" className="font-semibold text-[var(--foreground)] text-lg mb-4">Registrar producto</h2>
+
+            <div className="space-y-3 mb-4">
+              <p className="text-sm font-medium text-[var(--foreground)]">Datos del producto</p>
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block text-sm text-[var(--muted)] mb-1">Código *</label>
+                  <input value={newProductForm.code} onChange={(e) => setNewProductForm((f) => ({ ...f, code: e.target.value }))} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" placeholder="Código" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--muted)] mb-1">Nombre *</label>
+                  <input value={newProductForm.name} onChange={(e) => setNewProductForm((f) => ({ ...f, name: e.target.value }))} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" placeholder="Nombre" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--muted)] mb-1">Descripción</label>
+                  <textarea value={newProductForm.description} onChange={(e) => setNewProductForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" placeholder="Descripción" />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-[var(--border)] my-4" aria-hidden />
+
+            <div className="space-y-3 mb-4">
+              <p className="text-sm font-medium text-[var(--foreground)]">Datos del ingreso (opcional)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-[var(--muted)] mb-1">Cantidad</label>
+                  <input type="number" min={0} value={newIngresoForm.quantity} onChange={(e) => setNewIngresoForm((f) => ({ ...f, quantity: e.target.value }))} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--muted)] mb-1">Costo unitario</label>
+                  <input type="number" min={0} step={0.01} value={newIngresoForm.unitCost} onChange={(e) => setNewIngresoForm((f) => ({ ...f, unitCost: e.target.value }))} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--muted)] mb-1">Precio de venta</label>
+                  <input type="number" min={0} step={0.01} value={newIngresoForm.salePrice} onChange={(e) => setNewIngresoForm((f) => ({ ...f, salePrice: e.target.value }))} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" placeholder="0" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm text-[var(--muted)] mb-1">Observación</label>
+                  <input value={newIngresoForm.observation} onChange={(e) => setNewIngresoForm((f) => ({ ...f, observation: e.target.value }))} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" placeholder="Observación del ingreso" />
+                </div>
+              </div>
+            </div>
+
+            {registerProductError && <p className="text-sm text-[var(--destructive)] mb-3">{registerProductError}</p>}
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setRegisterProductModal(false)} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 font-medium">Cancelar</button>
+              <button type="button" onClick={handleRegisterProductSubmit} disabled={registerProductSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 font-medium disabled:opacity-50">{registerProductSaving ? 'Guardando...' : 'Guardar y agregar al presupuesto'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ActionModal open={actionModal.open} onClose={closeActionModal} title={actionModal.title} message={actionModal.message} variant={actionModal.variant} />
     </div>
   );
