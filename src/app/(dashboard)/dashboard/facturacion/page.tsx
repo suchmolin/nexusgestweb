@@ -307,16 +307,47 @@ export default function FacturacionPage() {
     } catch (e) { setErrorInvoice(e instanceof Error ? e.message : 'Error'); } finally { setSavingInvoice(false); }
   };
 
-  const handleCreateFromBudget = async () => {
+  const handleLoadBudgetIntoNewInvoice = async () => {
     if (!companyId || !selectedBudget?.id) return;
     setCreatingFromBudget(true);
     try {
-      await invoicesApi.createFromBudget(companyId, selectedBudget.id);
+      const fullBudget = await budgetsApi.get(selectedBudget.id, companyId) as any;
+      const client = fullBudget.client;
+      const budgetItems = fullBudget.items || [];
+      setTitle(fullBudget.title ?? '');
+      setSelectedClientId(fullBudget.clientId ?? null);
+      setClientRif(client?.rifCedula ?? '');
+      setClientSearchResult(client ?? null);
+      setClientForm({
+        name: client?.name ?? '',
+        address: client?.address ?? '',
+        rifCedula: client?.rifCedula ?? '',
+        phone: client?.phone ?? '',
+        email: client?.email ?? '',
+      });
+      setItems(
+        budgetItems.map((it: any, idx: number) => ({
+          productId: it.productId,
+          code: it.product?.code ?? '',
+          name: it.product?.name ?? '',
+          quantity: Number(it.quantity) || 1,
+          unitPrice: Number(it.unitPrice) ?? 0,
+          sortOrder: it.sortOrder ?? idx + 1,
+          exentoIva: !!it.exentoIva,
+        }))
+      );
+      setIvaPercent(Number(fullBudget.ivaPercent) ?? 12);
+      setRateOfDay(String(fullBudget.rateOfDay ?? ''));
+      setCurrencies(Array.isArray(fullBudget.currencies) && fullBudget.currencies.length > 0 ? fullBudget.currencies : ['BS']);
+      setObservations(fullBudget.observations ?? '');
+      setPriority(fullBudget.priority ?? 'NORMAL');
+      setPaymentMethods(Array.isArray(fullBudget.paymentMethods) ? fullBudget.paymentMethods : []);
+      setDeliveryTime(fullBudget.deliveryTime ?? '');
+      setValidity(fullBudget.validity ?? '');
       setSelectedBudget(null);
-      loadInvoices();
-      setTab('list');
+      setTab('new');
     } catch (e) {
-      showActionModal('Error al generar factura', e instanceof Error ? e.message : 'Error al generar factura', 'error');
+      showActionModal('Error al cargar presupuesto', e instanceof Error ? e.message : 'Error al cargar presupuesto', 'error');
     } finally {
       setCreatingFromBudget(false);
     }
@@ -438,11 +469,11 @@ export default function FacturacionPage() {
               </div>
               {selectedBudget && (
                 <div className="mt-6 p-4 rounded-xl bg-[var(--card)] border border-[var(--border)]">
-                  <p className="font-medium mb-2">Generar factura a partir del presupuesto {selectedBudget.correlative}</p>
-                  <p className="text-sm text-[var(--muted)] mb-3">Título: {selectedBudget.title} — Cliente: {selectedBudget.client?.name}. La factura tendrá un correlativo propio.</p>
+                  <p className="font-medium mb-2">Presupuesto {selectedBudget.correlative} seleccionado</p>
+                  <p className="text-sm text-[var(--muted)] mb-3">Título: {selectedBudget.title} — Cliente: {selectedBudget.client?.name}. Los datos se cargarán en la factura nueva para que puedas modificarlos antes de guardar.</p>
                   <div className="flex gap-2">
-                    <button type="button" onClick={handleCreateFromBudget} disabled={creatingFromBudget} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 disabled:opacity-50">
-                      {creatingFromBudget ? 'Generando...' : 'Confirmar y generar factura'}
+                    <button type="button" onClick={handleLoadBudgetIntoNewInvoice} disabled={creatingFromBudget} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 disabled:opacity-50">
+                      {creatingFromBudget ? 'Cargando...' : 'Pasar a factura nueva'}
                     </button>
                     <button type="button" onClick={() => setSelectedBudget(null)} className="rounded-lg bg-[var(--card-hover)] px-4 py-2">Cancelar</button>
                   </div>
