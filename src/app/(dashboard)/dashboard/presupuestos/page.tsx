@@ -83,7 +83,7 @@ export default function PresupuestosPage() {
   const [filterProduct, setFilterProduct] = useState('');
   const [editModal, setEditModal] = useState<{ id: string; budget: any | null } | null>(null);
   const [deleteModal, setDeleteModal] = useState<{ id: string; correlative: string } | null>(null);
-  const [duplicateModal, setDuplicateModal] = useState<{ id: string; budget: any } | null>(null);
+  const [duplicateModal, setDuplicateModal] = useState<{ id: string; correlative: string } | null>(null);
 
   const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
   const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
@@ -543,6 +543,18 @@ export default function PresupuestosPage() {
   };
 
   const today = new Date().toISOString().slice(0, 10);
+
+  const handleDuplicate = async (id: string) => {
+    if (!companyId) return;
+    try {
+      await budgetsApi.duplicate(id, companyId);
+      setDuplicateModal(null);
+      loadList();
+    } catch (e) {
+      setDuplicateModal(null);
+      showActionModal('Error al duplicar', e instanceof Error ? e.message : 'Error al duplicar presupuesto', 'error');
+    }
+  };
 
   const handleOpenEdit = async (b: any) => {
     if (!companyId) return;
@@ -1063,7 +1075,7 @@ export default function PresupuestosPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => setDuplicateModal({ id: b.id, budget: b })}
+                              onClick={() => setDuplicateModal({ id: b.id, correlative: b.correlative })}
                               title="Duplicar"
                               className="inline-flex items-center justify-center rounded-full bg-[var(--alternative)]/10 text-[var(--alternative)] hover:bg-[var(--alternative)] hover:text-white w-8 h-8 transition-colors"
                             >
@@ -1379,10 +1391,18 @@ export default function PresupuestosPage() {
           {duplicateModal && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setDuplicateModal(null)}>
               <div className="bg-[var(--card)] rounded-xl p-6 max-w-lg w-full border border-[var(--border)]" onClick={(e) => e.stopPropagation()}>
-                <p className="font-medium">Duplicar presupuesto</p>
-                <p className="text-sm text-[var(--muted)] mt-1">Se creará una copia con nuevo correlativo. Deberás asignar cliente y datos generales. ¿Continuar?</p>
-                <p className="text-sm text-[var(--muted)] mt-2">La duplicación completa se implementará próximamente.</p>
-                <button type="button" onClick={() => setDuplicateModal(null)} className="mt-4 rounded-lg bg-[var(--card-hover)] px-4 py-2">Cerrar</button>
+                <p className="font-medium">Duplicar presupuesto {duplicateModal.correlative}</p>
+                <p className="text-sm text-[var(--muted)] mt-1">
+                  Se creará un nuevo presupuesto con la misma información y el título con sufijo "(DUPLICADO)".
+                </p>
+                <div className="flex gap-2 mt-4 justify-end">
+                  <button type="button" onClick={() => setDuplicateModal(null)} className="rounded-lg bg-[var(--card-hover)] px-4 py-2">
+                    Cancelar
+                  </button>
+                  <button type="button" onClick={() => handleDuplicate(duplicateModal.id)} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2">
+                    Duplicar
+                  </button>
+                </div>
               </div>
             </div>
           )}
