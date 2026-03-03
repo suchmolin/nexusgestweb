@@ -86,8 +86,8 @@ export default function ConfiguracionPage() {
     }).catch(() => setCompany(null));
     configApi.get(companyId).then((c: any) => {
       setConfig(c);
-      setUsdRate(c?.usdRate != null ? String(c.usdRate) : '');
-      setEurRate(c?.eurRate != null ? String(c.eurRate) : '');
+      setUsdRate(c?.usdRate != null && !isNaN(Number(c.usdRate)) ? Number(c.usdRate).toFixed(2) : '');
+      setEurRate(c?.eurRate != null && !isNaN(Number(c.eurRate)) ? Number(c.eurRate).toFixed(2) : '');
       setDefaultIvaPercent(c?.defaultIvaPercent != null ? String(c.defaultIvaPercent) : '');
       setInvoiceFormat(c?.invoiceFormat ?? 'LETTER');
       setPrimaryColor(c?.primaryColor ?? '#2563eb');

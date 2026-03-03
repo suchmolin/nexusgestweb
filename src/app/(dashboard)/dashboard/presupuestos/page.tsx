@@ -10,6 +10,17 @@ const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', '
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
 const PRODUCT_SEARCH_DEBOUNCE_MS = 280;
 
+function getDefaultCurrencyFromConfig(cfg: { currencySymbol?: string } | null): 'USD' | 'EUR' | 'BS' | null {
+  const symbol = cfg?.currencySymbol;
+  if (!symbol) return null;
+  const raw = String(symbol).trim();
+  const s = raw.toUpperCase();
+  if (s === 'BS' || s === 'BOLIVAR' || s === 'BOLÍVAR' || raw === 'Bs.') return 'BS';
+  if (s === 'USD' || raw === '$') return 'USD';
+  if (s === 'EUR' || raw === '€') return 'EUR';
+  return null;
+}
+
 function getCompanyId(user: { role: string; companyId: string | null }, selected: string | null): string | null {
   return user.role === 'SUPER_ADMIN' ? selected : user.companyId;
 }
@@ -91,7 +102,21 @@ export default function PresupuestosPage() {
     companiesApi.get(companyId).then((c: any) => setCompany(c)).catch(() => setCompany(null));
     configApi.get(companyId).then((c: any) => {
       setConfig(c);
-      setCurrencies(prev => (prev.length === 1 && prev[0] === 'BS' ? [c?.currencySymbol || 'BS'] : prev));
+      const defaultCurrency = getDefaultCurrencyFromConfig(c) ?? 'BS';
+      const hasUsdRate = c?.usdRate != null;
+      const hasEurRate = c?.eurRate != null;
+      let foreign: 'USD' | 'EUR' | null = null;
+      if (hasUsdRate && !hasEurRate) foreign = 'USD';
+      else if (hasEurRate && !hasUsdRate) foreign = 'EUR';
+      const nextCurrencies: string[] = [defaultCurrency];
+      if (foreign && foreign !== defaultCurrency) nextCurrencies.push(foreign);
+      setCurrencies(nextCurrencies);
+      // Si la tasa viene de Configuración y ya sabemos qué moneda extranjera se usa, mostrarla en el campo.
+      if (foreign === 'USD' && c?.usdRate != null && !isNaN(Number(c.usdRate))) {
+        setRateOfDay(Number(c.usdRate).toFixed(2));
+      } else if (foreign === 'EUR' && c?.eurRate != null && !isNaN(Number(c.eurRate))) {
+        setRateOfDay(Number(c.eurRate).toFixed(2));
+      }
       setIvaPercent(c?.defaultIvaPercent != null ? Number(c.defaultIvaPercent) : 12);
     }).catch(() => setConfig(null));
   }, [companyId]);
@@ -338,8 +363,9 @@ export default function PresupuestosPage() {
     setCurrencies((prev) => {
       if (prev.includes(c)) return prev.filter((x) => x !== c);
       if (prev.length >= 2) return prev;
-      if (c === 'USD' && prev.includes('EUR')) return [c];
-      if (c === 'EUR' && prev.includes('USD')) return [c];
+      // No permitir USD y EUR a la vez
+      if (c === 'USD' && prev.includes('EUR')) return [...prev.filter((x) => x !== 'EUR'), c];
+      if (c === 'EUR' && prev.includes('USD')) return [...prev.filter((x) => x !== 'USD'), c];
       return [...prev, c];
     });
   };
@@ -351,6 +377,33 @@ export default function PresupuestosPage() {
   const fieldConfig = config?.budgetFieldsConfig ?? {};
   const isFieldVisible = (key: string) => fieldConfig[key]?.visible !== false;
   const isFieldRequired = (key: string) => fieldConfig[key]?.required === true;
+
+  const foreignCurrency = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+  const rateLockedFromConfig =
+    foreignCurrency === 'USD' ? config?.usdRate != null :
+    foreignCurrency === 'EUR' ? config?.eurRate != null :
+    false;
+
+  const usdRateNum = rateOfDay && !isNaN(Number(rateOfDay)) ? Number(rateOfDay) : config?.usdRate;
+  const eurRateNum = config?.eurRate;
+  const onlyUsdSelected = currencies.length === 1 && currencies[0] === 'USD';
+  const onlyEurSelected = currencies.length === 1 && currencies[0] === 'EUR';
+  const displayCurrency: 'BS' | 'USD' | 'EUR' = onlyUsdSelected && usdRateNum ? 'USD' : onlyEurSelected && eurRateNum ? 'EUR' : (getDefaultCurrencyFromConfig(config) ?? 'BS');
+  const displayRate = displayCurrency === 'USD' ? (usdRateNum || 1) : displayCurrency === 'EUR' ? (eurRateNum || 1) : 1;
+  const displaySymbol = displayCurrency === 'BS' ? 'Bs.' : displayCurrency === 'USD' ? '$' : '€';
+
+  // Cuando el usuario selecciona USD/EUR y existe tasa en Configuración,
+  // sobrescribimos cualquier valor previo del campo con la tasa configurada.
+  useEffect(() => {
+    if (!config) return;
+    if (!foreignCurrency) return;
+    if (!rateLockedFromConfig) return;
+    if (foreignCurrency === 'USD' && config.usdRate != null && !isNaN(Number(config.usdRate))) {
+      setRateOfDay(Number(config.usdRate).toFixed(2));
+    } else if (foreignCurrency === 'EUR' && config.eurRate != null && !isNaN(Number(config.eurRate))) {
+      setRateOfDay(Number(config.eurRate).toFixed(2));
+    }
+  }, [foreignCurrency, rateLockedFromConfig, config]);
 
   const handleSubmitBudget = async () => {
     if (!companyId) return;
@@ -386,8 +439,19 @@ export default function PresupuestosPage() {
       return;
     }
     if (isFieldVisible('rateOfDay')) {
-      const needsRate = currencies.some((c) => c === 'USD' || c === 'EUR');
-      if (needsRate && (!rateOfDay.trim() || isNaN(Number(rateOfDay)))) {
+      const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+      const hasForeign = !!foreign;
+      const hasRate = !!rateOfDay.trim() && !isNaN(Number(rateOfDay));
+      const hasConfigRate =
+        foreign === 'USD' ? config?.usdRate != null :
+        foreign === 'EUR' ? config?.eurRate != null :
+        false;
+
+      if (hasRate && !hasForeign) {
+        setError('Debes seleccionar USD o EUR cuando defines una tasa del día.');
+        return;
+      }
+      if (hasForeign && !(hasRate || hasConfigRate)) {
         setError('Tasa del día es obligatoria cuando se selecciona USD o EUR.');
         return;
       }
@@ -403,12 +467,28 @@ export default function PresupuestosPage() {
     setSaving(true);
     setError('');
     try {
+      const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+      let effectiveRate: number | null = null;
+      if (isFieldVisible('rateOfDay')) {
+        if (rateOfDay.trim() && !isNaN(Number(rateOfDay))) {
+          effectiveRate = Number(rateOfDay);
+        } else if (foreign === 'USD' && config?.usdRate != null) {
+          effectiveRate = Number(config.usdRate);
+        } else if (foreign === 'EUR' && config?.eurRate != null) {
+          effectiveRate = Number(config.eurRate);
+        }
+      } else {
+        if (config?.usdRate != null) effectiveRate = Number(config.usdRate);
+        else if (config?.eurRate != null) effectiveRate = Number(config.eurRate);
+        else effectiveRate = 1;
+      }
+
       await budgetsApi.create(companyId, {
         title: (isFieldVisible('title') ? title.trim() : '') || 'Presupuesto',
         clientId,
         date: new Date().toISOString().slice(0, 10),
         ivaPercent,
-        rateOfDay: isFieldVisible('rateOfDay') ? Number(rateOfDay) : (Number(rateOfDay) || config?.usdRate || 1),
+        rateOfDay: effectiveRate ?? 1,
         currencies,
         observations: isFieldVisible('observations') ? observations.trim() || undefined : undefined,
         priority: isFieldVisible('priority') ? priority : 'NORMAL',
@@ -591,16 +671,19 @@ export default function PresupuestosPage() {
                         <th className="p-2">COD</th>
                         <th className="p-2">Nombre</th>
                         <th className="p-2">Cant.</th>
-                        <th className="p-2">P. unit.</th>
-                        <th className="p-2">Total</th>
-                        <th className="p-2">IVA</th>
+                        <th className="p-2">P. unit. ({displaySymbol})</th>
+                        <th className="p-2">Total ({displaySymbol})</th>
+                        <th className="p-2">IVA ({displaySymbol})</th>
                         <th className="p-2"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.map((it, idx) => {
-                        const lineTotal = (it.quantity ?? 0) * (it.unitPrice ?? 0);
-                        const lineIva = it.exentoIva ? 0 : (lineTotal * ivaPercent) / 100;
+                        const lineTotalBs = (it.quantity ?? 0) * (it.unitPrice ?? 0);
+                        const lineIvaBs = it.exentoIva ? 0 : (lineTotalBs * ivaPercent) / 100;
+                        const unitDisplay = displayCurrency === 'BS' ? (it.unitPrice ?? 0) : (it.unitPrice ?? 0) / displayRate;
+                        const lineTotalDisplay = displayCurrency === 'BS' ? lineTotalBs : lineTotalBs / displayRate;
+                        const lineIvaDisplay = displayCurrency === 'BS' ? lineIvaBs : lineIvaBs / displayRate;
                         return (
                         <tr key={it.productId} className="border-t border-[var(--border)]">
                           <td className="p-2">{it.code}</td>
@@ -614,9 +697,9 @@ export default function PresupuestosPage() {
                               className="w-16 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-1"
                             />
                           </td>
-                          <td className="p-2 text-right tabular-nums">{(it.unitPrice ?? 0).toFixed(2)}</td>
-                          <td className="p-2 text-right tabular-nums">{lineTotal.toFixed(2)}</td>
-                          <td className="p-2 text-right tabular-nums text-[var(--muted)]">{it.exentoIva ? '—' : lineIva.toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums">{unitDisplay.toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums">{lineTotalDisplay.toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums text-[var(--muted)]">{it.exentoIva ? '—' : lineIvaDisplay.toFixed(2)}</td>
                           <td className="p-2">
                             <button type="button" onClick={() => moveItem(it.productId, 'up')} disabled={idx === 0} className="mr-1 text-[var(--muted)] disabled:opacity-50">↑</button>
                             <button type="button" onClick={() => moveItem(it.productId, 'down')} disabled={idx === items.length - 1} className="mr-1 text-[var(--muted)] disabled:opacity-50">↓</button>
@@ -630,24 +713,43 @@ export default function PresupuestosPage() {
                 {items.length > 0 && (
                   <div className="mt-3 p-3 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm space-y-1">
                     {(() => {
+                      const defaultCurrency = getDefaultCurrencyFromConfig(config) ?? 'BS';
+                      const usdRate = rateOfDay && !isNaN(Number(rateOfDay)) ? Number(rateOfDay) : config?.usdRate;
+                      const eurRate = config?.eurRate;
+                      const onlyUsd = currencies.length === 1 && currencies[0] === 'USD';
+                      const onlyEur = currencies.length === 1 && currencies[0] === 'EUR';
+                      const displayInUsd = onlyUsd && usdRate;
+                      const displayInEur = onlyEur && eurRate;
+                      const baseCurrency: 'USD' | 'EUR' | 'BS' = displayInUsd ? 'USD' : displayInEur ? 'EUR' : defaultCurrency;
+                      const baseLabel = baseCurrency === 'BS' ? 'Bs.' : baseCurrency === 'USD' ? '$' : '€';
+                      const displayRate = displayInUsd ? usdRate : displayInEur ? eurRate : 1;
+
                       const cantidadProductos = items.reduce((s, i) => s + (i.quantity ?? 0), 0);
-                      const subtotalSinIva = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
-                      const subtotalConIva = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
-                      const ivaMonto = (subtotalConIva * ivaPercent) / 100;
-                      const total = subtotalSinIva + subtotalConIva + ivaMonto;
-                      const rate = rateOfDay && !isNaN(Number(rateOfDay)) ? Number(rateOfDay) : config?.usdRate;
+                      const subtotalSinIvaBs = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                      const subtotalConIvaBs = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                      const ivaMontoBs = (subtotalConIvaBs * ivaPercent) / 100;
+                      const totalBs = subtotalSinIvaBs + subtotalConIvaBs + ivaMontoBs;
+                      const toDisplay = (x: number) => (baseCurrency === 'BS' ? x : x / (displayRate || 1));
+                      const subtotalSinIva = toDisplay(subtotalSinIvaBs);
+                      const subtotalConIva = toDisplay(subtotalConIvaBs);
+                      const ivaMonto = toDisplay(ivaMontoBs);
+                      const total = toDisplay(totalBs);
                       return (
                         <>
                           <p className="text-[var(--muted)]">Cantidad de productos: <strong className="text-[var(--foreground)]">{cantidadProductos}</strong></p>
-                          <p className="text-[var(--foreground)]">Subtotal (sin IVA): <strong>{subtotalSinIva.toFixed(2)}</strong> Bs.</p>
-                          <p className="text-[var(--foreground)]">Subtotal (con IVA): <strong>{subtotalConIva.toFixed(2)}</strong> Bs.</p>
-                          <p className="text-[var(--foreground)]">IVA ({ivaPercent}%): <strong>{ivaMonto.toFixed(2)}</strong> Bs.</p>
-                          <p className="text-[var(--foreground)] font-medium">Total: <strong>{total.toFixed(2)}</strong> Bs.</p>
-                          {currencies.includes('USD') && rate && rate > 0 && (
-                            <p className="text-[var(--muted)]">Equivalente en USD (tasa {rate}): <strong>{(total / rate).toFixed(2)}</strong> USD</p>
+                          <p className="text-[var(--foreground)]">Subtotal (sin IVA): <strong>{subtotalSinIva.toFixed(2)}</strong> {baseLabel}</p>
+                          <p className="text-[var(--foreground)]">Subtotal (con IVA): <strong>{subtotalConIva.toFixed(2)}</strong> {baseLabel}</p>
+                          <p className="text-[var(--foreground)]">IVA ({ivaPercent}%): <strong>{ivaMonto.toFixed(2)}</strong> {baseLabel}</p>
+                          <p className="text-[var(--foreground)] font-medium">Total: <strong>{total.toFixed(2)}</strong> {baseLabel}</p>
+                          <p className="text-[var(--muted)] mt-2 font-medium">Total por moneda:</p>
+                          {currencies.includes('BS') && (
+                            <p className="text-[var(--foreground)]">Total en Bs.: <strong>{totalBs.toFixed(2)}</strong></p>
                           )}
-                          {currencies.includes('EUR') && config?.eurRate && config.eurRate > 0 && (
-                            <p className="text-[var(--muted)]">Equivalente en EUR (tasa {config.eurRate}): <strong>{(total / config.eurRate).toFixed(2)}</strong> EUR</p>
+                          {currencies.includes('USD') && usdRate != null && (
+                            <p className="text-[var(--foreground)]">Total en USD: <strong>{(totalBs / (usdRate || 1)).toFixed(2)}</strong> (tasa {usdRate})</p>
+                          )}
+                          {currencies.includes('EUR') && eurRate != null && (
+                            <p className="text-[var(--foreground)]">Total en EUR: <strong>{(totalBs / (eurRate || 1)).toFixed(2)}</strong> (tasa {eurRate})</p>
                           )}
                         </>
                       );
@@ -666,7 +768,19 @@ export default function PresupuestosPage() {
                   {isFieldVisible('rateOfDay') && (
                   <div>
                     <label className="block text-sm text-[var(--muted)] mb-1">Tasa del día</label>
-                    <input value={rateOfDay} onChange={(e) => setRateOfDay(e.target.value)} placeholder="Ej: 36.5" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                    <input
+                      value={rateOfDay}
+                      onChange={(e) => setRateOfDay(e.target.value)}
+                      placeholder="Ej: 36.5"
+                      className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2"
+                      readOnly={rateLockedFromConfig}
+                      disabled={rateLockedFromConfig}
+                    />
+                    {rateLockedFromConfig && (
+                      <p className="text-xs text-[var(--muted)] mt-1">
+                        Tasa tomada de Configuración (solo lectura).
+                      </p>
+                    )}
                   </div>
                   )}
                   <div>
@@ -674,7 +788,11 @@ export default function PresupuestosPage() {
                     <div className="flex gap-2 flex-wrap">
                       {CURRENCY_OPTIONS.map((c) => (
                         <label key={c} className="flex items-center gap-1">
-                          <input type="checkbox" checked={currencies.includes(c)} onChange={() => toggleCurrency(c)} />
+                          <input
+                            type="checkbox"
+                            checked={currencies.includes(c)}
+                            onChange={() => toggleCurrency(c)}
+                          />
                           <span>{c}</span>
                         </label>
                       ))}
