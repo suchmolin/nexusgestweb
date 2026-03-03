@@ -82,6 +82,7 @@ export default function PresupuestosPage() {
     configApi.get(companyId).then((c: any) => {
       setConfig(c);
       setCurrencies(prev => (prev.length === 1 && prev[0] === 'BS' ? [c?.currencySymbol || 'BS'] : prev));
+      setIvaPercent(c?.defaultIvaPercent != null ? Number(c.defaultIvaPercent) : 12);
     }).catch(() => setConfig(null));
   }, [companyId]);
 

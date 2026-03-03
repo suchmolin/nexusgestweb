@@ -47,6 +47,7 @@ export default function ConfiguracionPage() {
   const [email, setEmail] = useState('');
   const [usdRate, setUsdRate] = useState('');
   const [eurRate, setEurRate] = useState('');
+  const [defaultIvaPercent, setDefaultIvaPercent] = useState('');
   const [invoiceFormat, setInvoiceFormat] = useState('LETTER');
   const [primaryColor, setPrimaryColor] = useState('#2563eb');
   const [secondaryColor, setSecondaryColor] = useState('#7c3aed');
@@ -87,6 +88,7 @@ export default function ConfiguracionPage() {
       setConfig(c);
       setUsdRate(c?.usdRate != null ? String(c.usdRate) : '');
       setEurRate(c?.eurRate != null ? String(c.eurRate) : '');
+      setDefaultIvaPercent(c?.defaultIvaPercent != null ? String(c.defaultIvaPercent) : '');
       setInvoiceFormat(c?.invoiceFormat ?? 'LETTER');
       setPrimaryColor(c?.primaryColor ?? '#2563eb');
       setSecondaryColor(c?.secondaryColor ?? '#7c3aed');
@@ -121,6 +123,7 @@ export default function ConfiguracionPage() {
         invoiceFormat,
         usdRate: usdRate ? Number(usdRate) : null,
         eurRate: eurRate ? Number(eurRate) : null,
+        defaultIvaPercent: defaultIvaPercent !== '' && !isNaN(Number(defaultIvaPercent)) ? Number(defaultIvaPercent) : null,
         logoUrl: logoUrl.trim() || null,
         budgetBackgroundImageUrl: budgetBackgroundUrl.trim() || null,
         invoiceBackgroundImageUrl: invoiceBackgroundUrl.trim() || null,
@@ -201,6 +204,15 @@ export default function ConfiguracionPage() {
                 <label className="block text-sm text-[var(--muted)] mb-1">Tasa EUR</label>
                 <input type="number" min={0} step={0.0001} value={eurRate} onChange={(e) => setEurRate(e.target.value)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
               </div>
+            </div>
+          </section>
+
+          <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+            <h2 className="font-semibold text-[var(--foreground)] mb-3">IVA por defecto</h2>
+            <p className="text-sm text-[var(--muted)] mb-3">Porcentaje de IVA que se usará por defecto en presupuestos y facturas. Siempre se puede editar en cada documento.</p>
+            <div className="max-w-xs">
+              <label className="block text-sm text-[var(--muted)] mb-1">IVA (%)</label>
+              <input type="number" min={0} max={100} step={0.01} value={defaultIvaPercent} onChange={(e) => setDefaultIvaPercent(e.target.value)} placeholder="Ej: 12" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
             </div>
           </section>
 
