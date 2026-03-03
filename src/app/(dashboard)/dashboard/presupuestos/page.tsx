@@ -26,7 +26,7 @@ export default function PresupuestosPage() {
 
   const [title, setTitle] = useState('');
   const [clientRif, setClientRif] = useState('');
-  const [clientSearchResult, setClientSearchResult] = useState<{ id: string; name: string; address?: string; rifCedula: string; phone?: string; email?: string } | null | 'loading'>(null);
+  const [clientSearchResult, setClientSearchResult] = useState<{ id: string; name: string; address?: string; rifCedula: string; phone?: string; email?: string } | null | 'loading' | 'not-found'>(null);
   const [clientForm, setClientForm] = useState<{ name: string; address: string; rifCedula: string; phone: string; email: string }>({ name: '', address: '', rifCedula: '', phone: '', email: '' });
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [productCodeInput, setProductCodeInput] = useState('');
@@ -96,7 +96,7 @@ export default function PresupuestosPage() {
     setClientSearchResult('loading');
     try {
       const found = await clientsApi.search(companyId, clientRif.trim());
-      setClientSearchResult(found as any);
+      setClientSearchResult(found ? (found as any) : 'not-found');
       if (found) {
         const c = found as any;
         setSelectedClientId(c.id);
@@ -110,23 +110,9 @@ export default function PresupuestosPage() {
     }
   };
 
-  const handleAddClientAndContinue = async () => {
-    if (!companyId || !clientForm.name.trim() || !clientForm.rifCedula.trim()) {
-      setError('Nombre y RIF/Cédula son obligatorios.');
-      return;
-    }
-    setSaving(true);
-    setError('');
-    try {
-      const created = await clientsApi.create(companyId, clientForm) as any;
-      setSelectedClientId(created.id);
-      setClientSearchResult(created);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al guardar cliente');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const isClientNotFound = clientSearchResult === 'not-found';
+  const canSubmitWithNewClient = isClientNotFound && clientForm.name.trim() && clientForm.rifCedula.trim();
+  const hasValidClient = !!selectedClientId || canSubmitWithNewClient;
 
   const handleProductCodeKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' || !companyId || !productCodeInput.trim()) return;
@@ -199,8 +185,28 @@ export default function PresupuestosPage() {
   const isFieldRequired = (key: string) => fieldConfig[key]?.required === true;
 
   const handleSubmitBudget = async () => {
-    if (!companyId || !selectedClientId) {
-      setError('Cliente es obligatorio.');
+    if (!companyId) return;
+    let clientId = selectedClientId;
+    if (!clientId && canSubmitWithNewClient) {
+      setError('');
+      setSaving(true);
+      try {
+        const created = await clientsApi.create(companyId, {
+          name: clientForm.name.trim(),
+          address: clientForm.address?.trim() || undefined,
+          rifCedula: clientForm.rifCedula.trim(),
+          phone: clientForm.phone?.trim() || undefined,
+          email: clientForm.email?.trim() || undefined,
+        }) as any;
+        clientId = created.id;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Error al crear cliente');
+        setSaving(false);
+        return;
+      }
+    }
+    if (!clientId) {
+      setError('Cliente es obligatorio. Busca por RIF/Cédula o completa los datos si no está registrado.');
       return;
     }
     if (items.length === 0) {
@@ -211,9 +217,12 @@ export default function PresupuestosPage() {
       setError('Título es obligatorio.');
       return;
     }
-    if (isFieldVisible('rateOfDay') && (!rateOfDay.trim() || isNaN(Number(rateOfDay)))) {
-      setError('Tasa del día es obligatoria.');
-      return;
+    if (isFieldVisible('rateOfDay')) {
+      const needsRate = currencies.some((c) => c === 'USD' || c === 'EUR');
+      if (needsRate && (!rateOfDay.trim() || isNaN(Number(rateOfDay)))) {
+        setError('Tasa del día es obligatoria cuando se selecciona USD o EUR.');
+        return;
+      }
     }
     if (isFieldVisible('priority') && isFieldRequired('priority') && !priority) {
       setError('Prioridad es obligatoria.');
@@ -228,7 +237,7 @@ export default function PresupuestosPage() {
     try {
       await budgetsApi.create(companyId, {
         title: (isFieldVisible('title') ? title.trim() : '') || 'Presupuesto',
-        clientId: selectedClientId,
+        clientId,
         date: new Date().toISOString().slice(0, 10),
         ivaPercent,
         rateOfDay: isFieldVisible('rateOfDay') ? Number(rateOfDay) : (Number(rateOfDay) || config?.usdRate || 1),
@@ -367,24 +376,23 @@ export default function PresupuestosPage() {
                   <button type="button" onClick={handleSearchClient} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2">Buscar</button>
                 </div>
                 {clientSearchResult === 'loading' && <p className="mt-2 text-sm text-[var(--muted)]">Buscando...</p>}
-                {clientSearchResult && clientSearchResult !== 'loading' && (
+                {clientSearchResult && clientSearchResult !== 'loading' && clientSearchResult !== 'not-found' && (
                   <div className="mt-3 p-3 rounded-lg bg-[var(--background)]">
                     <p className="font-medium">{clientSearchResult.name}</p>
                     <p className="text-sm text-[var(--muted)]">RIF/Cédula: {clientSearchResult.rifCedula}</p>
-                    {!selectedClientId && (
-                      <p className="text-sm mt-2">Completa los datos y guarda el cliente para continuar.</p>
-                    )}
                   </div>
                 )}
-                {clientSearchResult && clientSearchResult !== 'loading' && !selectedClientId && (
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <input value={clientForm.name} onChange={(e) => setClientForm((f) => ({ ...f, name: e.target.value }))} placeholder="Nombre *" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input value={clientForm.rifCedula} onChange={(e) => setClientForm((f) => ({ ...f, rifCedula: e.target.value }))} placeholder="RIF/Cédula *" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input value={clientForm.address} onChange={(e) => setClientForm((f) => ({ ...f, address: e.target.value }))} placeholder="Dirección" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 md:col-span-2" />
-                    <input value={clientForm.phone} onChange={(e) => setClientForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Teléfono" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input value={clientForm.email} onChange={(e) => setClientForm((f) => ({ ...f, email: e.target.value }))} placeholder="Correo" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <button type="button" onClick={handleAddClientAndContinue} disabled={saving} className="rounded-lg bg-[var(--alternative)] text-white px-4 py-2 disabled:opacity-50">Guardar cliente y continuar</button>
-                  </div>
+                {clientSearchResult === 'not-found' && (
+                  <>
+                    <p className="mt-2 text-sm text-[var(--muted)]">No existe un cliente con ese RIF/Cédula. Completa los datos; se guardará al guardar el presupuesto.</p>
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <input value={clientForm.name} onChange={(e) => setClientForm((f) => ({ ...f, name: e.target.value }))} placeholder="Nombre *" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                      <input value={clientForm.rifCedula} onChange={(e) => setClientForm((f) => ({ ...f, rifCedula: e.target.value }))} placeholder="RIF/Cédula *" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                      <input value={clientForm.address} onChange={(e) => setClientForm((f) => ({ ...f, address: e.target.value }))} placeholder="Dirección" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 md:col-span-2" />
+                      <input value={clientForm.phone} onChange={(e) => setClientForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Teléfono" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                      <input value={clientForm.email} onChange={(e) => setClientForm((f) => ({ ...f, email: e.target.value }))} placeholder="Correo" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                    </div>
+                  </>
                 )}
               </section>
 
@@ -531,7 +539,7 @@ export default function PresupuestosPage() {
               </section>
 
               {error && <p className="text-[var(--destructive)]">{error}</p>}
-              <button type="button" onClick={handleSubmitBudget} disabled={saving || !selectedClientId || items.length === 0} className="rounded-lg bg-[var(--primary)] text-white px-6 py-2 font-medium disabled:opacity-50">
+              <button type="button" onClick={handleSubmitBudget} disabled={saving || !hasValidClient || items.length === 0} className="rounded-lg bg-[var(--primary)] text-white px-6 py-2 font-medium disabled:opacity-50">
                 {saving ? 'Guardando...' : 'Guardar presupuesto'}
               </button>
             </div>

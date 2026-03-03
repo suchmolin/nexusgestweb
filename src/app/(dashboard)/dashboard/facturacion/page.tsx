@@ -49,7 +49,7 @@ export default function FacturacionPage() {
   const [config, setConfig] = useState<any>(null);
   const [title, setTitle] = useState('');
   const [clientRif, setClientRif] = useState('');
-  const [clientSearchResult, setClientSearchResult] = useState<any | 'loading'>(null);
+  const [clientSearchResult, setClientSearchResult] = useState<any | 'loading' | 'not-found'>(null);
   const [clientForm, setClientForm] = useState<{ name: string; address: string; rifCedula: string; phone: string; email: string }>({ name: '', address: '', rifCedula: '', phone: '', email: '' });
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [productCodeInput, setProductCodeInput] = useState('');
@@ -110,7 +110,7 @@ export default function FacturacionPage() {
     setClientSearchResult('loading');
     try {
       const found = await clientsApi.search(companyId, clientRif.trim()) as any;
-      setClientSearchResult(found);
+      setClientSearchResult(found ?? 'not-found');
       if (found) {
         setSelectedClientId(found.id);
         setClientForm({ name: found.name, address: found.address ?? '', rifCedula: found.rifCedula, phone: found.phone ?? '', email: found.email ?? '' });
@@ -121,15 +121,9 @@ export default function FacturacionPage() {
     } catch { setClientSearchResult(null); }
   };
 
-  const handleAddClientAndContinue = async () => {
-    if (!companyId || !clientForm.name.trim() || !clientForm.rifCedula.trim()) { setErrorInvoice('Nombre y RIF/Cédula son obligatorios.'); return; }
-    setSavingInvoice(true); setErrorInvoice('');
-    try {
-      const created = await clientsApi.create(companyId, clientForm) as any;
-      setSelectedClientId(created.id);
-      setClientSearchResult(created);
-    } catch (e) { setErrorInvoice(e instanceof Error ? e.message : 'Error'); } finally { setSavingInvoice(false); }
-  };
+  const isClientNotFound = clientSearchResult === 'not-found';
+  const canSubmitWithNewClient = isClientNotFound && clientForm.name.trim() && clientForm.rifCedula.trim();
+  const hasValidClient = !!selectedClientId || canSubmitWithNewClient;
 
   const handleProductCodeKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' || !companyId || !productCodeInput.trim()) return;
@@ -181,13 +175,33 @@ export default function FacturacionPage() {
   };
 
   const handleSubmitInvoice = async () => {
-    if (!companyId || !selectedClientId) { setErrorInvoice('Cliente es obligatorio.'); return; }
+    if (!companyId) return;
+    let clientId = selectedClientId;
+    if (!clientId && canSubmitWithNewClient) {
+      setErrorInvoice('');
+      setSavingInvoice(true);
+      try {
+        const created = await clientsApi.create(companyId, clientForm) as any;
+        clientId = created.id;
+      } catch (e) {
+        setErrorInvoice(e instanceof Error ? e.message : 'Error al crear cliente');
+        setSavingInvoice(false);
+        return;
+      }
+    }
+    if (!clientId) {
+      setErrorInvoice('Cliente es obligatorio. Busca por RIF/Cédula o completa los datos si no está registrado.');
+      return;
+    }
     if (items.length === 0) { setErrorInvoice('Agrega al menos un producto.'); return; }
     const invFieldConfig = config?.invoiceFieldsConfig ?? {};
     const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
     const invRequired = (key: string) => invFieldConfig[key]?.required === true;
     if (invVisible('title') && !title.trim()) { setErrorInvoice('Título es obligatorio.'); return; }
-    if (invVisible('rateOfDay') && (!rateOfDay.trim() || isNaN(Number(rateOfDay)))) { setErrorInvoice('Tasa del día es obligatoria.'); return; }
+    if (invVisible('rateOfDay')) {
+      const needsRate = currencies.some((c) => c === 'USD' || c === 'EUR');
+      if (needsRate && (!rateOfDay.trim() || isNaN(Number(rateOfDay)))) { setErrorInvoice('Tasa del día es obligatoria cuando se selecciona USD o EUR.'); return; }
+    }
     if (invVisible('paymentMethods') && invRequired('paymentMethods') && paymentMethods.length === 0) { setErrorInvoice('Forma de pago es obligatoria.'); return; }
     setSavingInvoice(true); setErrorInvoice('');
     try {
@@ -195,7 +209,7 @@ export default function FacturacionPage() {
       const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
       await invoicesApi.create(companyId, {
         title: (invVisible('title') ? title.trim() : '') || 'Factura',
-        clientId: selectedClientId,
+        clientId,
         date: new Date().toISOString().slice(0, 10),
         ivaPercent,
         rateOfDay: invVisible('rateOfDay') ? Number(rateOfDay) : (Number(rateOfDay) || config?.usdRate || 1),
@@ -381,22 +395,23 @@ export default function FacturacionPage() {
                   <button type="button" onClick={handleSearchClient} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2">Buscar</button>
                 </div>
                 {clientSearchResult === 'loading' && <p className="mt-2 text-sm text-[var(--muted)]">Buscando...</p>}
-                {clientSearchResult && clientSearchResult !== 'loading' && (
+                {clientSearchResult && clientSearchResult !== 'loading' && clientSearchResult !== 'not-found' && (
                   <div className="mt-3 p-3 rounded-lg bg-[var(--background)]">
                     <p className="font-medium">{clientSearchResult.name}</p>
                     <p className="text-sm text-[var(--muted)]">RIF/Cédula: {clientSearchResult.rifCedula}</p>
-                    {!selectedClientId && <p className="text-sm mt-2">Completa los datos y guarda el cliente para continuar.</p>}
                   </div>
                 )}
-                {clientSearchResult && clientSearchResult !== 'loading' && !selectedClientId && (
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <input value={clientForm.name} onChange={(e) => setClientForm((f) => ({ ...f, name: e.target.value }))} placeholder="Nombre *" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input value={clientForm.rifCedula} onChange={(e) => setClientForm((f) => ({ ...f, rifCedula: e.target.value }))} placeholder="RIF/Cédula *" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input value={clientForm.address} onChange={(e) => setClientForm((f) => ({ ...f, address: e.target.value }))} placeholder="Dirección" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 md:col-span-2" />
-                    <input value={clientForm.phone} onChange={(e) => setClientForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Teléfono" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input value={clientForm.email} onChange={(e) => setClientForm((f) => ({ ...f, email: e.target.value }))} placeholder="Correo" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <button type="button" onClick={handleAddClientAndContinue} disabled={savingInvoice} className="rounded-lg bg-[var(--alternative)] text-white px-4 py-2 disabled:opacity-50">Guardar cliente y continuar</button>
-                  </div>
+                {clientSearchResult === 'not-found' && (
+                  <>
+                    <p className="mt-2 text-sm text-[var(--muted)]">No existe un cliente con ese RIF/Cédula. Completa los datos; se guardará al guardar la factura.</p>
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <input value={clientForm.name} onChange={(e) => setClientForm((f) => ({ ...f, name: e.target.value }))} placeholder="Nombre *" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                      <input value={clientForm.rifCedula} onChange={(e) => setClientForm((f) => ({ ...f, rifCedula: e.target.value }))} placeholder="RIF/Cédula *" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                      <input value={clientForm.address} onChange={(e) => setClientForm((f) => ({ ...f, address: e.target.value }))} placeholder="Dirección" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 md:col-span-2" />
+                      <input value={clientForm.phone} onChange={(e) => setClientForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Teléfono" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                      <input value={clientForm.email} onChange={(e) => setClientForm((f) => ({ ...f, email: e.target.value }))} placeholder="Correo" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                    </div>
+                  </>
                 )}
               </section>
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
@@ -474,7 +489,7 @@ export default function FacturacionPage() {
                 </div>
               </section>
               {errorInvoice && <p className="text-[var(--destructive)]">{errorInvoice}</p>}
-              <button type="button" onClick={handleSubmitInvoice} disabled={savingInvoice || !selectedClientId || items.length === 0} className="rounded-lg bg-[var(--primary)] text-white px-6 py-2 font-medium disabled:opacity-50">{savingInvoice ? 'Guardando...' : 'Guardar factura'}</button>
+              <button type="button" onClick={handleSubmitInvoice} disabled={savingInvoice || !hasValidClient || items.length === 0} className="rounded-lg bg-[var(--primary)] text-white px-6 py-2 font-medium disabled:opacity-50">{savingInvoice ? 'Guardando...' : 'Guardar factura'}</button>
             </div>
           )}
 
