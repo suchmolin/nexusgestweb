@@ -49,10 +49,12 @@ export function Sidebar({
   mobileOpen = false,
   onClose,
   isMobile = false,
+  logoUrl = null,
 }: {
   mobileOpen?: boolean;
   onClose?: () => void;
   isMobile?: boolean;
+  logoUrl?: string | null;
 } = {}) {
   const pathname = usePathname();
   const router = useRouter();
@@ -108,10 +110,14 @@ export function Sidebar({
         className={collapsed ? 'flex flex-col items-center gap-0' : 'flex items-center gap-2 min-w-0 flex-1'}
         onClick={() => onClose?.()}
       >
-        <div className="w-9 h-9 rounded-lg bg-[var(--primary)] flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
-          N
-        </div>
-        {!collapsed && <span className="font-semibold text-lg truncate">NexusGest</span>}
+        {logoUrl ? (
+          <img src={logoUrl} alt="Logo" className="h-9 w-auto max-w-[120px] object-contain object-left flex-shrink-0" />
+        ) : (
+          <div className="w-9 h-9 rounded-lg bg-[var(--primary)] flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+            N
+          </div>
+        )}
+        {!collapsed && !logoUrl && <span className="font-semibold text-lg truncate">NexusGest</span>}
       </Link>
       {!isMobile && (
         <button
@@ -217,9 +223,15 @@ export function Sidebar({
           }`}
         >
           <div className="flex items-center justify-between p-4 border-b border-[var(--border)]">
-            <Link href="/dashboard" className="flex items-center gap-2" onClick={() => onClose?.()}>
-              <div className="w-9 h-9 rounded-lg bg-[var(--primary)] flex items-center justify-center text-white font-bold text-lg">N</div>
-              <span className="font-semibold text-lg">NexusGest</span>
+            <Link href="/dashboard" className="flex items-center gap-2 min-w-0" onClick={() => onClose?.()}>
+              {logoUrl ? (
+                <img src={logoUrl} alt="Logo" className="h-9 w-auto max-w-[120px] object-contain" />
+              ) : (
+                <>
+                  <div className="w-9 h-9 rounded-lg bg-[var(--primary)] flex items-center justify-center text-white font-bold text-lg flex-shrink-0">N</div>
+                  <span className="font-semibold text-lg">NexusGest</span>
+                </>
+              )}
             </Link>
             <button type="button" onClick={onClose} className="p-2 rounded-lg text-[var(--muted)] hover:bg-[var(--card-hover)]" aria-label="Cerrar menú">
               <IconX className="w-5 h-5" />

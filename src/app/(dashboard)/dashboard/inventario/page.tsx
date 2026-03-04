@@ -201,7 +201,7 @@ export default function InventarioPage() {
         <>
           <div className="flex gap-2 mt-6 border-b border-[var(--border)] flex-wrap">
             {(['consulta', 'ingreso', 'egreso', 'add'] as const).map((t) => (
-              <button key={t} type="button" onClick={() => setSubTab(t)} className={`px-4 py-2 font-medium ${subTab === t ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}>
+              <button key={t} type="button" onClick={() => setSubTab(t)} className={`px-4 py-2 font-medium rounded-t-lg ${subTab === t ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}>
                 {t === 'consulta' && 'Consulta'}
                 {t === 'ingreso' && 'Ingreso'}
                 {t === 'egreso' && 'Egreso'}

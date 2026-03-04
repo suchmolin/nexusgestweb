@@ -164,6 +164,25 @@ export const adminApi = {
     api<{ ingresosCount: number; ingresosTotalCost: number; facturacionCount: number; facturacionTotal: number; balance: number }>('/admin/stats', { params: { companyId } }),
 };
 
+/** Sube una imagen a Vercel Blob. Devuelve la URL para guardar en BD. Requiere estar logueado. */
+export async function uploadImage(file: File): Promise<{ url: string; pathname: string }> {
+  const token = getToken();
+  if (!token) throw new Error('Debes iniciar sesión para subir archivos');
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}${apiPath('/upload/image')}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    const err = text ? (() => { try { return JSON.parse(text); } catch { return { message: res.statusText }; } })() : { message: res.statusText };
+    throw new Error((err as { message?: string }).message || 'Error al subir la imagen');
+  }
+  return JSON.parse(text) as { url: string; pathname: string };
+}
+
 export const usersApi = {
   listAdmins: () => api<Array<{ id: string; username: string; companyId: string | null; company: { id: string; name: string } | null }>>('/users/admins'),
   createUser: (data: {
