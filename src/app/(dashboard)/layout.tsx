@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Sidebar } from '@/components/Sidebar';
@@ -17,6 +17,8 @@ export default function DashboardLayout({
   const router = useRouter();
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const refreshConfigRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (loading) return;
@@ -26,16 +28,29 @@ export default function DashboardLayout({
     }
   }, [user, loading, router]);
 
-  useEffect(() => {
+  const refreshConfig = () => {
     if (!user?.companyId) return;
     const cid = user.companyId;
     configApi.get(cid).then((c: any) => {
+      setLogoUrl(c?.logoUrl ?? null);
       const root = document.documentElement;
       if (c?.primaryColor) { root.style.setProperty('--primary', c.primaryColor); root.style.setProperty('--primary-hover', c.primaryColor); }
       if (c?.secondaryColor) { root.style.setProperty('--secondary', c.secondaryColor); root.style.setProperty('--secondary-hover', c.secondaryColor); }
       if (c?.alternativeColor) { root.style.setProperty('--alternative', c.alternativeColor); root.style.setProperty('--alternative-hover', c.alternativeColor); }
-    }).catch(() => {});
+    }).catch(() => setLogoUrl(null));
+  };
+
+  refreshConfigRef.current = refreshConfig;
+  useEffect(() => {
+    if (!user?.companyId) return;
+    refreshConfig();
   }, [user?.companyId]);
+
+  useEffect(() => {
+    const onConfigUpdated = () => refreshConfigRef.current();
+    window.addEventListener('config-updated', onConfigUpdated);
+    return () => window.removeEventListener('config-updated', onConfigUpdated);
+  }, []);
 
   if (loading) {
     return (
@@ -52,6 +67,7 @@ export default function DashboardLayout({
         isMobile={isMobile}
         mobileOpen={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
+        logoUrl={logoUrl}
       />
       <div className="flex-1 flex flex-col min-w-0">
         <header className="md:hidden sticky top-0 z-20 flex items-center gap-3 p-3 bg-[var(--card)] border-b border-[var(--border)]">
@@ -63,7 +79,11 @@ export default function DashboardLayout({
           >
             <IconMenu className="w-6 h-6" />
           </button>
-          <span className="font-semibold text-lg text-[var(--foreground)]">NexusGest</span>
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" className="h-8 w-auto max-w-[140px] object-contain object-left" />
+          ) : (
+            <span className="font-semibold text-lg text-[var(--foreground)]">NexusGest</span>
+          )}
         </header>
         <main className="flex-1 overflow-auto">
           {children}

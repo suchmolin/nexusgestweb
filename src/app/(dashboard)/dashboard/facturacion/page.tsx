@@ -558,21 +558,21 @@ export default function FacturacionPage() {
             <button
               type="button"
               onClick={() => setTab('new')}
-              className={`px-4 py-2 font-medium ${tab === 'new' ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}
+              className={`px-4 py-2 font-medium rounded-t-lg ${tab === 'new' ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
             >
               Nueva factura
             </button>
             <button
               type="button"
               onClick={() => { setTab('from-budget'); setSelectedBudget(null); }}
-              className={`px-4 py-2 font-medium ${tab === 'from-budget' ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}
+              className={`px-4 py-2 font-medium rounded-t-lg ${tab === 'from-budget' ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
             >
               Desde presupuesto
             </button>
             <button
               type="button"
               onClick={() => setTab('list')}
-              className={`px-4 py-2 font-medium ${tab === 'list' ? 'border-b-2 border-[var(--primary)] text-[var(--primary)]' : 'text-[var(--muted)]'}`}
+              className={`px-4 py-2 font-medium rounded-t-lg ${tab === 'list' ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
             >
               Consultar facturas
             </button>
