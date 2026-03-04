@@ -202,8 +202,9 @@ export default function ClientesPage() {
                         <label className="block text-sm font-medium text-[var(--foreground)] mb-1">RIF / Cédula *</label>
                         <input
                           value={form.rifCedula}
-                          onChange={(e) => setForm((f) => ({ ...f, rifCedula: e.target.value }))}
-                          className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2"
+                          readOnly
+                          className="w-full rounded-lg bg-[var(--border)]/30 border border-[var(--border)] px-3 py-2 cursor-not-allowed text-[var(--muted)]"
+                          title="RIF/Cédula fijado por la búsqueda"
                         />
                       </div>
                       <div className="md:col-span-2">
