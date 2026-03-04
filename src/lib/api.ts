@@ -6,12 +6,14 @@ function getToken(): string | null {
   return localStorage.getItem('token');
 }
 
+const apiPath = (path: string) => (path.startsWith('/api') ? path : '/api' + (path.startsWith('/') ? path : '/' + path));
+
 export async function api<T>(
   path: string,
   options: RequestInit & { params?: Record<string, string> } = {}
 ): Promise<T> {
   const { params, ...rest } = options;
-  let url = `${API_BASE}${path}`;
+  let url = `${API_BASE}${apiPath(path)}`;
   if (params && Object.keys(params).length > 0) {
     const search = new URLSearchParams(params).toString();
     url += (path.includes('?') ? '&' : '?') + search;
@@ -116,7 +118,7 @@ export const budgetsApi = {
   duplicate: (id: string, companyId: string) =>
     api<unknown>(`/budgets/${id}/duplicate`, { method: 'POST', params: { companyId } }),
   getPdfBlob: async (id: string, companyId: string): Promise<Blob> => {
-    const url = `${API_BASE}/budgets/${id}/pdf?companyId=${encodeURIComponent(companyId)}`;
+    const url = `${API_BASE}${apiPath(`/budgets/${id}/pdf`)}?companyId=${encodeURIComponent(companyId)}`;
     const token = getToken();
     const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
     if (!res.ok) throw new Error('Error al generar PDF');
@@ -133,7 +135,7 @@ export const invoicesApi = {
   create: (companyId: string, data: unknown) =>
     api<unknown>('/invoices', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
   getPdfBlob: async (id: string, companyId: string): Promise<Blob> => {
-    const url = `${API_BASE}/invoices/${id}/pdf?companyId=${encodeURIComponent(companyId)}`;
+    const url = `${API_BASE}${apiPath(`/invoices/${id}/pdf`)}?companyId=${encodeURIComponent(companyId)}`;
     const token = getToken();
     const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
     if (!res.ok) throw new Error('Error al generar PDF');
