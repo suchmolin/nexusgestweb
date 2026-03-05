@@ -669,6 +669,21 @@ export default function FacturacionPage() {
     else showActionModal('Impresión', 'Permite ventanas emergentes para imprimir.', 'info');
   };
 
+  const handleDownloadInvoicePdf = async (id: string) => {
+    if (!companyId) return;
+    try {
+      const blob = await invoicesApi.getPdfBlob(id, companyId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `factura-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      showActionModal('Error al descargar PDF', e instanceof Error ? e.message : 'Error al descargar PDF', 'error');
+    }
+  };
+
   const handlePrintSavedInvoice = async () => {
     if (!companyId || !savedInvoiceModal) return;
     try {
