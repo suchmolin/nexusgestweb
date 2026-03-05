@@ -126,6 +126,23 @@ export const budgetsApi = {
   },
 };
 
+export const cierreCajaApi = {
+  getCurrent: (companyId: string) =>
+    api<{ period: { id: string; startDate: string; status: string } | null; myClosings: unknown[] }>('/cierre-caja/current', { params: { companyId } }),
+  register: (companyId: string, data: { efectivoBs: number; puntoVentaBs: number; transferenciaPagoMovilBs: number; efectivoUsd: number; zelleUsd: number }) =>
+    api<unknown>('/cierre-caja/register', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  getCurrentSummary: (companyId: string) =>
+    api<{ period: unknown; invoiced: unknown; closings: unknown[]; closingsTotals: unknown }>('/cierre-caja/admin/current-summary', { params: { companyId } }),
+  closePeriod: (companyId: string) =>
+    api<unknown>('/cierre-caja/admin/close', { method: 'POST', params: { companyId } }),
+  listClosed: (companyId: string, page?: number, limit?: number) =>
+    api<{ items: unknown[]; total: number; page: number; limit: number }>('/cierre-caja/admin/closed', {
+      params: { companyId, ...(page != null && { page: String(page) }), ...(limit != null && { limit: String(limit) }) },
+    }),
+  getReport: (companyId: string, periodId: string) =>
+    api<unknown>(`/cierre-caja/admin/closed/${periodId}/report`, { params: { companyId } }),
+};
+
 export const invoicesApi = {
   list: (companyId: string, filters?: Record<string, string>) =>
     api<{ items: unknown[]; total: number }>('/invoices', { params: { companyId, ...filters } }),

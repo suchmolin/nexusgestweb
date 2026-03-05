@@ -244,6 +244,7 @@ const ICON_MAP = {
   CLIENTES: IconUser,
   PRESUPUESTOS: IconFileText,
   FACTURACION: IconReceipt,
+  CIERRE_CAJA: IconReceipt,
   INVENTARIO: IconPackage,
   ADMINISTRACION: IconBarChart,
   LOGS: IconScrollText,
