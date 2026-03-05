@@ -130,6 +130,8 @@ export const invoicesApi = {
   list: (companyId: string, filters?: Record<string, string>) =>
     api<{ items: unknown[]; total: number }>('/invoices', { params: { companyId, ...filters } }),
   get: (id: string, companyId: string) => api<unknown>(`/invoices/${id}`, { params: { companyId } }),
+  anular: (id: string, companyId: string) =>
+    api<unknown>(`/invoices/${id}/anular`, { method: 'PATCH', params: { companyId } }),
   createFromBudget: (companyId: string, budgetId: string) =>
     api<unknown>('/invoices/from-budget', { method: 'POST', body: JSON.stringify({ budgetId }), params: { companyId } }),
   create: (companyId: string, data: unknown) =>

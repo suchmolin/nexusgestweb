@@ -53,6 +53,9 @@ export default function FacturacionPage() {
   const [invoiceFilterTo, setInvoiceFilterTo] = useState('');
   const [invoiceFilterCode, setInvoiceFilterCode] = useState('');
   const [invoiceFilterClient, setInvoiceFilterClient] = useState('');
+  const [invoiceFilterEstado, setInvoiceFilterEstado] = useState<'todas' | 'validas' | 'anuladas'>('validas');
+  const [anularModal, setAnularModal] = useState<{ open: boolean; id: string; correlative: string } | null>(null);
+  const [anulando, setAnulando] = useState(false);
 
   const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
   const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
@@ -115,13 +118,13 @@ export default function FacturacionPage() {
 
   const loadInvoices = useCallback(() => {
     if (!companyId) return;
-    const params: Record<string, string> = { companyId, page: String(invoicePage), limit: String(invoiceLimit) };
+    const params: Record<string, string> = { companyId, page: String(invoicePage), limit: String(invoiceLimit), estado: invoiceFilterEstado };
     if (invoiceFilterFrom) params.from = invoiceFilterFrom;
     if (invoiceFilterTo) params.to = invoiceFilterTo;
     if (invoiceFilterCode) params.code = invoiceFilterCode;
     if (invoiceFilterClient) params.client = invoiceFilterClient;
     invoicesApi.list(companyId, params).then(setInvoices).catch(() => {});
-  }, [companyId, invoicePage, invoiceLimit, invoiceFilterFrom, invoiceFilterTo, invoiceFilterCode, invoiceFilterClient]);
+  }, [companyId, invoicePage, invoiceLimit, invoiceFilterEstado, invoiceFilterFrom, invoiceFilterTo, invoiceFilterCode, invoiceFilterClient]);
 
   useEffect(() => { if (tab === 'from-budget') loadBudgets(); }, [tab, loadBudgets]);
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
@@ -528,6 +531,21 @@ export default function FacturacionPage() {
     }
   };
 
+  const handleConfirmAnular = async () => {
+    if (!companyId || !anularModal) return;
+    setAnulando(true);
+    try {
+      await invoicesApi.anular(anularModal.id, companyId);
+      setAnularModal(null);
+      loadInvoices();
+      showActionModal('Factura anulada', `La factura ${anularModal.correlative} ha sido anulada correctamente.`, 'success');
+    } catch (e) {
+      showActionModal('Error al anular', e instanceof Error ? e.message : 'No se pudo anular la factura', 'error');
+    } finally {
+      setAnulando(false);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -845,13 +863,23 @@ export default function FacturacionPage() {
                   <input value={invoiceFilterClient} onChange={(e) => setInvoiceFilterClient(e.target.value)} placeholder="Cliente" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
                 </div>
               )}
-              <div className="flex gap-2 items-center mb-3">
-                <span className="text-sm text-[var(--muted)]">Mostrar</span>
-                <select value={invoiceLimit} onChange={(e) => { setInvoiceLimit(Number(e.target.value)); setInvoicePage(1); }} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-2 py-1">
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                </select>
+              <div className="flex flex-wrap gap-4 items-center mb-3">
+                <div className="flex gap-2 items-center">
+                  <span className="text-sm text-[var(--muted)]">Estado</span>
+                  <select value={invoiceFilterEstado} onChange={(e) => { setInvoiceFilterEstado(e.target.value as 'todas' | 'validas' | 'anuladas'); setInvoicePage(1); }} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-1.5 text-sm">
+                    <option value="validas">Válidas</option>
+                    <option value="anuladas">Anuladas</option>
+                    <option value="todas">Todas</option>
+                  </select>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-sm text-[var(--muted)]">Mostrar</span>
+                  <select value={invoiceLimit} onChange={(e) => { setInvoiceLimit(Number(e.target.value)); setInvoicePage(1); }} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-2 py-1">
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
               </div>
               <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
                 <table className="w-full text-left">
@@ -865,12 +893,18 @@ export default function FacturacionPage() {
                   </thead>
                   <tbody>
                     {invoices.items.map((inv: any) => (
-                      <tr key={inv.id} className="border-t border-[var(--border)]">
-                        <td className="p-3">{inv.correlative}</td>
+                      <tr key={inv.id} className={`border-t border-[var(--border)] ${inv.anulada ? 'opacity-75' : ''}`}>
+                        <td className="p-3">
+                          <span>{inv.correlative}</span>
+                          {inv.anulada && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded bg-[var(--muted)] text-[var(--background)]">Anulada</span>}
+                        </td>
                         <td className="p-3">{inv.title}</td>
                         <td className="p-3">{inv.client?.name ?? '—'}</td>
-                        <td className="p-3">
+                        <td className="p-3 flex flex-wrap gap-2">
                           <button type="button" onClick={() => handleDownloadInvoicePdf(inv.id)} className="rounded px-2 py-1 text-sm bg-[var(--primary)] text-white">Descargar</button>
+                          {!inv.anulada && (
+                            <button type="button" onClick={() => setAnularModal({ open: true, id: inv.id, correlative: inv.correlative })} className="rounded px-2 py-1 text-sm bg-[var(--destructive)] text-white">Anular</button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1025,6 +1059,19 @@ export default function FacturacionPage() {
         </div>
       )}
 
+      {/* Modal confirmar anular factura */}
+      {anularModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="anular-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="anular-modal-title" className="font-semibold text-[var(--foreground)] text-lg mb-2">Anular factura</h2>
+            <p className="text-sm text-[var(--muted)] mb-4">¿Anular la factura <strong>{anularModal.correlative}</strong>? Esta acción no se puede deshacer.</p>
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setAnularModal(null)} disabled={anulando} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium disabled:opacity-50">Cancelar</button>
+              <button type="button" onClick={handleConfirmAnular} disabled={anulando} className="rounded-lg bg-[var(--destructive)] text-white px-4 py-2 text-sm font-medium disabled:opacity-50">{anulando ? 'Anulando...' : 'Anular'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <ActionModal open={actionModal.open} onClose={closeActionModal} title={actionModal.title} message={actionModal.message} variant={actionModal.variant} />
     </div>
   );
