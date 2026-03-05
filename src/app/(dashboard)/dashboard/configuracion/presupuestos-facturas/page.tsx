@@ -29,6 +29,7 @@ export default function ConfigPresupuestosFacturasPage() {
   const [budgetFieldsConfig, setBudgetFieldsConfig] = useState<Record<string, { visible: boolean; required: boolean }>>({});
   const [invoiceFormat, setInvoiceFormat] = useState('LETTER');
   const [invoiceOnlyBolivares, setInvoiceOnlyBolivares] = useState(false);
+  const [invoicePaymentBreakdown, setInvoicePaymentBreakdown] = useState(false);
   const [invoiceBackgroundUrl, setInvoiceBackgroundUrl] = useState('');
   const [invoiceMarginTop, setInvoiceMarginTop] = useState(DEFAULT_MARGIN);
   const [invoiceMarginLeft, setInvoiceMarginLeft] = useState(DEFAULT_MARGIN);
@@ -54,6 +55,7 @@ export default function ConfigPresupuestosFacturasPage() {
       setBudgetMarginBottom(c?.budgetPdfMarginBottom ?? c?.pdfMarginBottom ?? DEFAULT_MARGIN);
       setInvoiceFormat(c?.invoiceFormat ?? 'LETTER');
       setInvoiceOnlyBolivares(!!c?.invoiceOnlyBolivares);
+      setInvoicePaymentBreakdown(!!c?.invoicePaymentBreakdown);
       setInvoiceBackgroundUrl(c?.invoiceBackgroundImageUrl ?? '');
       setInvoiceMarginTop(c?.invoicePdfMarginTop ?? c?.pdfMarginTop ?? DEFAULT_MARGIN);
       setInvoiceMarginLeft(c?.invoicePdfMarginLeft ?? c?.pdfMarginLeft ?? DEFAULT_MARGIN);
@@ -101,6 +103,7 @@ export default function ConfigPresupuestosFacturasPage() {
         budgetFieldsConfig: Object.keys(budgetFieldsConfig).length ? budgetFieldsConfig : null,
         invoiceFormat: invoiceFormat || null,
         invoiceOnlyBolivares,
+        invoicePaymentBreakdown,
         invoiceBackgroundImageUrl: invoiceBackgroundUrl.trim() || null,
         invoicePdfMarginTop: invoiceMarginTop >= 0 ? invoiceMarginTop : null,
         invoicePdfMarginLeft: invoiceMarginLeft >= 0 ? invoiceMarginLeft : null,
@@ -227,6 +230,13 @@ export default function ConfigPresupuestosFacturasPage() {
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={invoiceOnlyBolivares} onChange={(e) => setInvoiceOnlyBolivares(e.target.checked)} className="rounded border-[var(--border)]" />
             <span className="text-sm text-[var(--foreground)]">Facturación sólo en bolívares</span>
+          </label>
+
+          <h3 className="font-medium text-[var(--foreground)] mt-6 mb-2">Desglose del pago</h3>
+          <p className="text-xs text-[var(--muted)] mb-2">Si está activo, al guardar una factura se abrirá un modal para indicar el desglose por método de pago (efectivo Bs, tarjeta, transferencia, etc.) y ver el monto restante en Bs y USD/EUR.</p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={invoicePaymentBreakdown} onChange={(e) => setInvoicePaymentBreakdown(e.target.checked)} className="rounded border-[var(--border)]" />
+            <span className="text-sm text-[var(--foreground)]">Activar desglose del pago</span>
           </label>
 
           <h3 className="font-medium text-[var(--foreground)] mt-6 mb-2">Imagen de fondo</h3>

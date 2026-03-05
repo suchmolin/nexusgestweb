@@ -56,6 +56,23 @@ export default function FacturacionPage() {
   const [invoiceFilterEstado, setInvoiceFilterEstado] = useState<'todas' | 'validas' | 'anuladas'>('validas');
   const [anularModal, setAnularModal] = useState<{ open: boolean; id: string; correlative: string } | null>(null);
   const [anulando, setAnulando] = useState(false);
+  const [savedInvoiceModal, setSavedInvoiceModal] = useState<{ invoiceId: string } | null>(null);
+  const PAYMENT_KEYS = ['efectivoBs', 'tarjetaDebito', 'transferenciaPagoMovil', 'efectivoUsdEur', 'zelle'] as const;
+  const [paymentBreakdownModal, setPaymentBreakdownModal] = useState<{
+    totalInBs: number;
+    totalInForeign: number;
+    rate: number;
+    foreignLabel: 'USD' | 'EUR';
+    soloBolivares: boolean;
+    efectivoBs: number;
+    tarjetaDebito: number;
+    transferenciaPagoMovil: number;
+    efectivoUsdEur: number;
+    zelle: number;
+    transferenciaPagoMovilRef: string;
+    vueltoUsdInput: string;
+    vueltoBsInput: string;
+  } | null>(null);
 
   const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
   const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
@@ -395,6 +412,7 @@ export default function FacturacionPage() {
       try {
         const created = await clientsApi.create(companyId, clientForm) as any;
         clientId = created.id;
+        setSelectedClientId(created.id);
       } catch (e) {
         setErrorInvoice(e instanceof Error ? e.message : 'Error al crear cliente');
         setSavingInvoice(false);
@@ -429,6 +447,46 @@ export default function FacturacionPage() {
       }
     }
     if (invVisible('paymentMethods') && invRequired('paymentMethods') && paymentMethods.length === 0) { setErrorInvoice('Forma de pago es obligatoria.'); return; }
+
+    const invFieldConfigForBreakdown = config?.invoiceFieldsConfig ?? {};
+    const invVisibleBreakdown = (key: string) => invFieldConfigForBreakdown[key]?.visible !== false;
+    const foreignCur = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+    let effRate = 1;
+    if (invVisibleBreakdown('rateOfDay')) {
+      if (rateOfDay.trim() && !isNaN(Number(rateOfDay))) effRate = Number(rateOfDay);
+      else if (foreignCur === 'USD' && config?.usdRate != null) effRate = Number(config.usdRate);
+      else if (foreignCur === 'EUR' && config?.eurRate != null) effRate = Number(config.eurRate);
+    } else {
+      if (config?.usdRate != null) effRate = Number(config.usdRate);
+      else if (config?.eurRate != null) effRate = Number(config.eurRate);
+    }
+    const subSinIva = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+    const subConIva = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+    const ivaBs = (subConIva * ivaPercent) / 100;
+    const totalBs = subSinIva + subConIva + ivaBs;
+    const totalForeign = effRate ? totalBs / effRate : 0;
+    const foreignLbl: 'USD' | 'EUR' = foreignCur === 'EUR' ? 'EUR' : 'USD';
+
+    if (config?.invoicePaymentBreakdown) {
+      const soloBolivares = !foreignCur;
+      setPaymentBreakdownModal({
+        totalInBs: totalBs,
+        totalInForeign: totalForeign,
+        rate: effRate,
+        foreignLabel: foreignLbl,
+        soloBolivares,
+        efectivoBs: 0,
+        tarjetaDebito: 0,
+        transferenciaPagoMovil: 0,
+        efectivoUsdEur: 0,
+        zelle: 0,
+        transferenciaPagoMovilRef: '',
+        vueltoUsdInput: '',
+        vueltoBsInput: '',
+      });
+      return;
+    }
+
     setSavingInvoice(true); setErrorInvoice('');
     try {
       const invFieldConfig = config?.invoiceFieldsConfig ?? {};
@@ -450,7 +508,7 @@ export default function FacturacionPage() {
         else effectiveRate = 1;
       }
 
-      await invoicesApi.create(companyId, {
+      const created = await invoicesApi.create(companyId, {
         title: (invVisible('title') ? title.trim() : '') || 'Factura',
         clientId,
         date: new Date().toISOString().slice(0, 10),
@@ -463,10 +521,66 @@ export default function FacturacionPage() {
         deliveryTime: invVisible('deliveryTime') ? deliveryTime.trim() || undefined : undefined,
         validity: invVisible('validity') ? validity.trim() || undefined : undefined,
         items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder, exentoIva: i.exentoIva })),
-      });
-      setTab('list'); loadInvoices();
+      }) as { id: string };
       setTitle(''); setClientRif(''); setClientSearchResult(null); setSelectedClientId(null);
       setItems([]); setRateOfDay(''); setObservations(''); setPaymentMethods([]); setDeliveryTime(''); setValidity('');
+      setSavedInvoiceModal({ invoiceId: created.id });
+    } catch (e) { setErrorInvoice(e instanceof Error ? e.message : 'Error'); } finally { setSavingInvoice(false); }
+  };
+
+  const performCreateInvoice = async () => {
+    if (!companyId || !selectedClientId || !paymentBreakdownModal) return;
+    const montoTransfPagoMovil = Number(paymentBreakdownModal.transferenciaPagoMovil) || 0;
+    const refTransfPagoMovil = String(paymentBreakdownModal.transferenciaPagoMovilRef ?? '').trim();
+    if (montoTransfPagoMovil > 0 && !refTransfPagoMovil) {
+      setErrorInvoice('Si indica monto en Transferencia / Pago móvil, debe ingresar la referencia.');
+      return;
+    }
+    const invFieldConfig = config?.invoiceFieldsConfig ?? {};
+    const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
+    const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+    let effectiveRate = 1;
+    if (invVisible('rateOfDay')) {
+      if (rateOfDay.trim() && !isNaN(Number(rateOfDay))) effectiveRate = Number(rateOfDay);
+      else if (foreign === 'USD' && config?.usdRate != null) effectiveRate = Number(config.usdRate);
+      else if (foreign === 'EUR' && config?.eurRate != null) effectiveRate = Number(config.eurRate);
+    } else {
+      if (config?.usdRate != null) effectiveRate = Number(config.usdRate);
+      else if (config?.eurRate != null) effectiveRate = Number(config.eurRate);
+    }
+    setSavingInvoice(true); setErrorInvoice('');
+    try {
+      const payload: Record<string, unknown> = {
+        title: (invVisible('title') ? title.trim() : '') || 'Factura',
+        clientId: selectedClientId,
+        date: new Date().toISOString().slice(0, 10),
+        ivaPercent,
+        rateOfDay: effectiveRate,
+        currencies,
+        observations: invVisible('observations') ? observations.trim() || undefined : undefined,
+        priority: invVisible('priority') ? priority : 'NORMAL',
+        paymentMethods: invVisible('paymentMethods') ? paymentMethods : [],
+        deliveryTime: invVisible('deliveryTime') ? deliveryTime.trim() || undefined : undefined,
+        validity: invVisible('validity') ? validity.trim() || undefined : undefined,
+        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder, exentoIva: i.exentoIva })),
+      };
+      if (paymentBreakdownModal) {
+        payload.paymentBreakdown = {
+          efectivoBs: paymentBreakdownModal.efectivoBs || 0,
+          tarjetaDebito: paymentBreakdownModal.tarjetaDebito || 0,
+          transferenciaPagoMovil: paymentBreakdownModal.transferenciaPagoMovil || 0,
+          transferenciaPagoMovilRef: paymentBreakdownModal.transferenciaPagoMovilRef?.trim() || null,
+          efectivoUsdEur: paymentBreakdownModal.efectivoUsdEur || 0,
+          zelle: paymentBreakdownModal.zelle || 0,
+          vueltoUsd: parseFloat(paymentBreakdownModal.vueltoUsdInput ?? '') || 0,
+          vueltoBs: parseFloat(paymentBreakdownModal.vueltoBsInput ?? '') || 0,
+        };
+      }
+      const created = await invoicesApi.create(companyId, payload) as { id: string };
+      setPaymentBreakdownModal(null);
+      setTitle(''); setClientRif(''); setClientSearchResult(null); setSelectedClientId(null);
+      setItems([]); setRateOfDay(''); setObservations(''); setPaymentMethods([]); setDeliveryTime(''); setValidity('');
+      setSavedInvoiceModal({ invoiceId: created.id });
     } catch (e) { setErrorInvoice(e instanceof Error ? e.message : 'Error'); } finally { setSavingInvoice(false); }
   };
 
@@ -528,6 +642,19 @@ export default function FacturacionPage() {
       URL.revokeObjectURL(url);
     } catch (e) {
       showActionModal('Error al descargar PDF', e instanceof Error ? e.message : 'Error al descargar PDF', 'error');
+    }
+  };
+
+  const handlePrintSavedInvoice = async () => {
+    if (!companyId || !savedInvoiceModal) return;
+    try {
+      const blob = await invoicesApi.getPdfBlob(savedInvoiceModal.invoiceId, companyId);
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank', 'noopener,noreferrer');
+      if (w) setTimeout(() => { w.print(); URL.revokeObjectURL(url); }, 800);
+      else { URL.revokeObjectURL(url); showActionModal('Impresión', 'Permite ventanas emergentes para imprimir.', 'info'); }
+    } catch (e) {
+      showActionModal('Error al imprimir', e instanceof Error ? e.message : 'Error al generar PDF', 'error');
     }
   };
 
@@ -1059,6 +1186,164 @@ export default function FacturacionPage() {
         </div>
       )}
 
+      {/* Modal desglose del pago */}
+      {paymentBreakdownModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="desglose-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-md w-full my-8 p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="desglose-modal-title" className="font-semibold text-[var(--foreground)] text-lg mb-4">Desglose del pago</h2>
+            <p className="text-sm text-[var(--muted)] mb-4">Total de la factura. Indique los montos por método de pago para ver el restante.</p>
+            <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
+              <span className="text-[var(--muted)]">Total en Bs:</span>
+              <span className="font-medium text-right tabular-nums">{paymentBreakdownModal.totalInBs.toFixed(2)}</span>
+              {!paymentBreakdownModal.soloBolivares && (
+                <>
+                  <span className="text-[var(--muted)]">Total en {paymentBreakdownModal.foreignLabel}:</span>
+                  <span className="font-medium text-right tabular-nums">{paymentBreakdownModal.totalInForeign.toFixed(2)}</span>
+                </>
+              )}
+            </div>
+            <div className="space-y-3 mb-4">
+              {[
+                { key: 'efectivoBs' as const, label: 'Efectivo en bolívares (Bs)' },
+                { key: 'tarjetaDebito' as const, label: 'Tarjeta de débito (Bs)' },
+                { key: 'transferenciaPagoMovil' as const, label: 'Transferencia / Pago móvil (Bs)', withRef: true },
+                ...(!paymentBreakdownModal.soloBolivares
+                  ? [
+                      { key: 'efectivoUsdEur' as const, label: `Efectivo en ${paymentBreakdownModal.foreignLabel}` },
+                      { key: 'zelle' as const, label: 'Zelle' },
+                    ]
+                  : []),
+              ].map(({ key, label, withRef }: { key: keyof typeof paymentBreakdownModal; label: string; withRef?: boolean }) => (
+                <div key={key}>
+                  <label className="block text-sm text-[var(--muted)] mb-1">{label}</label>
+                  <div className="flex gap-2 flex-wrap items-center">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="Monto"
+                      value={paymentBreakdownModal[key] ?? ''}
+                      onChange={(e) => setPaymentBreakdownModal((p) => p ? { ...p, [key]: parseFloat(e.target.value) || 0 } : null)}
+                      className="flex-1 min-w-[100px] rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-sm"
+                    />
+                    {withRef && (
+                      <input
+                        type="text"
+                        placeholder="Referencia (obligatoria si hay monto)"
+                        value={paymentBreakdownModal.transferenciaPagoMovilRef ?? ''}
+                        onChange={(e) => setPaymentBreakdownModal((p) => p ? { ...p, transferenciaPagoMovilRef: e.target.value } : null)}
+                        className="flex-1 min-w-[100px] rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-sm"
+                      />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {(() => {
+              const sumBs = (paymentBreakdownModal.efectivoBs || 0) + (paymentBreakdownModal.tarjetaDebito || 0) + (paymentBreakdownModal.transferenciaPagoMovil || 0);
+              const sumForeign = (paymentBreakdownModal.efectivoUsdEur || 0) + (paymentBreakdownModal.zelle || 0);
+              const rate = paymentBreakdownModal.rate || 1;
+              const vueltoDadoBs = (parseFloat(paymentBreakdownModal.vueltoUsdInput ?? '') || 0) * rate + (parseFloat(paymentBreakdownModal.vueltoBsInput ?? '') || 0);
+              const vueltoDadoUsd = (parseFloat(paymentBreakdownModal.vueltoUsdInput ?? '') || 0) + (rate ? (parseFloat(paymentBreakdownModal.vueltoBsInput ?? '') || 0) / rate : 0);
+              const remainingBs = paymentBreakdownModal.totalInBs - sumBs - sumForeign * rate + vueltoDadoBs;
+              const remainingForeign = paymentBreakdownModal.totalInForeign - sumForeign - sumBs / rate + vueltoDadoUsd;
+              return (
+                <div className="p-3 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm mb-4">
+                  <p className="font-medium text-[var(--foreground)]">Restante por pagar</p>
+                  <p className="text-[var(--muted)] mt-1">En Bs: <span className="font-medium text-[var(--foreground)] tabular-nums">{remainingBs.toFixed(2)}</span></p>
+                  {!paymentBreakdownModal.soloBolivares && (
+                    <p className="text-[var(--muted)]">En {paymentBreakdownModal.foreignLabel}: <span className="font-medium text-[var(--foreground)] tabular-nums">{remainingForeign.toFixed(2)}</span></p>
+                  )}
+                </div>
+              );
+            })()}
+            {(() => {
+              const sumBs = (paymentBreakdownModal.efectivoBs || 0) + (paymentBreakdownModal.tarjetaDebito || 0) + (paymentBreakdownModal.transferenciaPagoMovil || 0);
+              const sumForeign = (paymentBreakdownModal.efectivoUsdEur || 0) + (paymentBreakdownModal.zelle || 0);
+              const rate = paymentBreakdownModal.rate || 1;
+              const totalCoveredBs = sumBs + sumForeign * rate;
+              const vueltoBs = totalCoveredBs - paymentBreakdownModal.totalInBs;
+              const hasExceso = vueltoBs > 0.01;
+              if (!hasExceso) return null;
+              const vueltoUsd = rate ? vueltoBs / rate : 0;
+              const inputUsd = parseFloat(paymentBreakdownModal.vueltoUsdInput ?? '') || 0;
+              const inputBs = parseFloat(paymentBreakdownModal.vueltoBsInput ?? '') || 0;
+              const vueltoDadoBs = inputUsd * rate + inputBs;
+              const vueltoDadoUsd = inputUsd + (rate ? inputBs / rate : 0);
+              const faltaPorDarBs = Math.max(0, vueltoBs - vueltoDadoBs);
+              const faltaPorDarUsd = Math.max(0, vueltoUsd - vueltoDadoUsd);
+              return (
+                <div className="p-3 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm mb-6">
+                  <p className="font-medium text-[var(--foreground)]">Vuelto a devolver</p>
+                  <p className="text-[var(--muted)] mt-1">Total: <span className="font-medium text-[var(--foreground)] tabular-nums">{vueltoBs.toFixed(2)}</span> Bs{!paymentBreakdownModal.soloBolivares && <> (<span className="tabular-nums">{vueltoUsd.toFixed(2)}</span> {paymentBreakdownModal.foreignLabel})</>}</p>
+                  <div className="mt-3 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="text-[var(--muted)] shrink-0">{paymentBreakdownModal.foreignLabel} a dar de vuelto:</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={paymentBreakdownModal.vueltoUsdInput ?? ''}
+                        onChange={(e) => setPaymentBreakdownModal((p) => p ? { ...p, vueltoUsdInput: e.target.value } : null)}
+                        className="w-24 rounded-lg bg-[var(--background)] border border-[var(--border)] px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="text-[var(--muted)] shrink-0">Bolívares a dar de vuelto:</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={paymentBreakdownModal.vueltoBsInput ?? ''}
+                        onChange={(e) => setPaymentBreakdownModal((p) => p ? { ...p, vueltoBsInput: e.target.value } : null)}
+                        className="w-24 rounded-lg bg-[var(--background)] border border-[var(--border)] px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[var(--muted)] mt-2 pt-2 border-t border-[var(--border)]">Falta por dar en Bs: <span className="font-medium text-[var(--foreground)] tabular-nums">{faltaPorDarBs.toFixed(2)}</span></p>
+                  {!paymentBreakdownModal.soloBolivares && (
+                    <p className="text-[var(--muted)] mt-0.5">Falta por dar en {paymentBreakdownModal.foreignLabel}: <span className="font-medium text-[var(--foreground)] tabular-nums">{faltaPorDarUsd.toFixed(2)}</span></p>
+                  )}
+                </div>
+              );
+            })()}
+            {errorInvoice && <p className="text-[var(--destructive)] text-sm mb-2">{errorInvoice}</p>}
+            {(() => {
+              const sumBs = (paymentBreakdownModal.efectivoBs || 0) + (paymentBreakdownModal.tarjetaDebito || 0) + (paymentBreakdownModal.transferenciaPagoMovil || 0);
+              const sumForeign = (paymentBreakdownModal.efectivoUsdEur || 0) + (paymentBreakdownModal.zelle || 0);
+              const rate = paymentBreakdownModal.rate || 1;
+              const totalCoveredBs = sumBs + sumForeign * rate;
+              const vueltoBs = totalCoveredBs - paymentBreakdownModal.totalInBs;
+              const inputUsd = parseFloat(paymentBreakdownModal.vueltoUsdInput ?? '') || 0;
+              const inputBs = parseFloat(paymentBreakdownModal.vueltoBsInput ?? '') || 0;
+              const vueltoDadoBs = inputUsd * rate + inputBs;
+              const exactMatch = Math.abs(totalCoveredBs - paymentBreakdownModal.totalInBs) < 0.01;
+              const excessCoveredByVuelto = vueltoBs > 0.01 && vueltoDadoBs >= vueltoBs - 0.01;
+              const breakdownMatchesTotal = exactMatch || excessCoveredByVuelto;
+              return (
+                <div className="flex gap-2 justify-end">
+                  <button type="button" onClick={() => { setPaymentBreakdownModal(null); setErrorInvoice(''); }} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium">Cancelar</button>
+                  <button type="button" onClick={performCreateInvoice} disabled={savingInvoice || !breakdownMatchesTotal} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium disabled:opacity-50">{savingInvoice ? 'Guardando...' : 'Guardar factura'}</button>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+      {/* Modal factura guardada */}
+      {savedInvoiceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="saved-invoice-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="saved-invoice-modal-title" className="font-semibold text-[var(--foreground)] text-lg mb-2">Factura guardada</h2>
+            <p className="text-sm text-[var(--muted)] mb-6">Su factura ha sido guardada correctamente.</p>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <button type="button" onClick={() => { handleDownloadInvoicePdf(savedInvoiceModal.invoiceId); setSavedInvoiceModal(null); }} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium">Descargar</button>
+              <button type="button" onClick={() => { handlePrintSavedInvoice(); setSavedInvoiceModal(null); }} className="rounded-lg bg-[var(--secondary)] text-white px-4 py-2 text-sm font-medium">Imprimir</button>
+              <button type="button" onClick={() => setSavedInvoiceModal(null)} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Modal confirmar anular factura */}
       {anularModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="anular-modal-title">
