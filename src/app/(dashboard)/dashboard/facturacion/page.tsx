@@ -57,6 +57,8 @@ export default function FacturacionPage() {
   const [anularModal, setAnularModal] = useState<{ open: boolean; id: string; correlative: string } | null>(null);
   const [anulando, setAnulando] = useState(false);
   const [savedInvoiceModal, setSavedInvoiceModal] = useState<{ invoiceId: string } | null>(null);
+  const [invoicePreviewModal, setInvoicePreviewModal] = useState<{ id: string; url: string; blob: Blob; filename: string } | null>(null);
+  const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
   const PAYMENT_KEYS = ['efectivoBs', 'tarjetaDebito', 'transferenciaPagoMovil', 'efectivoUsdEur', 'zelle'] as const;
   const [paymentBreakdownModal, setPaymentBreakdownModal] = useState<{
     totalInBs: number;
@@ -630,19 +632,41 @@ export default function FacturacionPage() {
     }
   };
 
-  const handleDownloadInvoicePdf = async (id: string) => {
+  const handleVisualizarInvoicePdf = async (id: string) => {
     if (!companyId) return;
+    setInvoicePreviewLoading(true);
     try {
       const blob = await invoicesApi.getPdfBlob(id, companyId);
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `factura-${id}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      setInvoicePreviewModal({ id, url, blob, filename: `factura-${id}.pdf` });
     } catch (e) {
-      showActionModal('Error al descargar PDF', e instanceof Error ? e.message : 'Error al descargar PDF', 'error');
+      showActionModal('Error al cargar PDF', e instanceof Error ? e.message : 'Error al cargar PDF', 'error');
+    } finally {
+      setInvoicePreviewLoading(false);
     }
+  };
+
+  const closeInvoicePreviewModal = () => {
+    if (invoicePreviewModal) {
+      URL.revokeObjectURL(invoicePreviewModal.url);
+      setInvoicePreviewModal(null);
+    }
+  };
+
+  const handleInvoicePreviewDownload = () => {
+    if (!invoicePreviewModal) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(invoicePreviewModal.blob);
+    a.download = invoicePreviewModal.filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const handleInvoicePreviewPrint = () => {
+    if (!invoicePreviewModal) return;
+    const w = window.open(invoicePreviewModal.url, '_blank', 'noopener,noreferrer');
+    if (w) setTimeout(() => { w.print(); }, 500);
+    else showActionModal('Impresión', 'Permite ventanas emergentes para imprimir.', 'info');
   };
 
   const handlePrintSavedInvoice = async () => {
@@ -1028,7 +1052,7 @@ export default function FacturacionPage() {
                         <td className="p-3">{inv.title}</td>
                         <td className="p-3">{inv.client?.name ?? '—'}</td>
                         <td className="p-3 flex flex-wrap gap-2">
-                          <button type="button" onClick={() => handleDownloadInvoicePdf(inv.id)} className="rounded px-2 py-1 text-sm bg-[var(--primary)] text-white">Descargar</button>
+                          <button type="button" onClick={() => handleVisualizarInvoicePdf(inv.id)} disabled={invoicePreviewLoading} className="rounded px-2 py-1 text-sm bg-[var(--primary)] text-white disabled:opacity-50">Visualizar</button>
                           {!inv.anulada && (
                             <button type="button" onClick={() => setAnularModal({ open: true, id: inv.id, correlative: inv.correlative })} className="rounded px-2 py-1 text-sm bg-[var(--destructive)] text-white">Anular</button>
                           )}
@@ -1071,6 +1095,23 @@ export default function FacturacionPage() {
               <button type="button" onClick={openRegisterProductModal} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 font-medium">
                 Registrar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: vista previa PDF factura (consultar facturas) */}
+      {invoicePreviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" role="dialog" aria-modal="true">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold text-[var(--foreground)] p-4 border-b border-[var(--border)]">Vista previa de la factura</h2>
+            <div className="flex-1 min-h-0 p-4">
+              <iframe src={invoicePreviewModal.url} title="Vista previa PDF" className="w-full h-[70vh] rounded-lg border border-[var(--border)] bg-white" />
+            </div>
+            <div className="p-4 border-t border-[var(--border)] flex flex-wrap gap-2 justify-end">
+              <button type="button" onClick={handleInvoicePreviewPrint} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium">Imprimir</button>
+              <button type="button" onClick={handleInvoicePreviewDownload} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium">Descargar</button>
+              <button type="button" onClick={closeInvoicePreviewModal} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium">Cerrar</button>
             </div>
           </div>
         </div>
