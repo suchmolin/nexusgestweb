@@ -53,6 +53,28 @@ export default function FacturacionPage() {
   const [invoiceFilterTo, setInvoiceFilterTo] = useState('');
   const [invoiceFilterCode, setInvoiceFilterCode] = useState('');
   const [invoiceFilterClient, setInvoiceFilterClient] = useState('');
+  const [invoiceFilterEstado, setInvoiceFilterEstado] = useState<'todas' | 'validas' | 'anuladas'>('validas');
+  const [anularModal, setAnularModal] = useState<{ open: boolean; id: string; correlative: string } | null>(null);
+  const [anulando, setAnulando] = useState(false);
+  const [savedInvoiceModal, setSavedInvoiceModal] = useState<{ invoiceId: string } | null>(null);
+  const [invoicePreviewModal, setInvoicePreviewModal] = useState<{ id: string; url: string; blob: Blob; filename: string } | null>(null);
+  const [invoicePreviewLoading, setInvoicePreviewLoading] = useState(false);
+  const PAYMENT_KEYS = ['efectivoBs', 'tarjetaDebito', 'transferenciaPagoMovil', 'efectivoUsdEur', 'zelle'] as const;
+  const [paymentBreakdownModal, setPaymentBreakdownModal] = useState<{
+    totalInBs: number;
+    totalInForeign: number;
+    rate: number;
+    foreignLabel: 'USD' | 'EUR';
+    soloBolivares: boolean;
+    efectivoBs: number;
+    tarjetaDebito: number;
+    transferenciaPagoMovil: number;
+    efectivoUsdEur: number;
+    zelle: number;
+    transferenciaPagoMovilRef: string;
+    vueltoUsdInput: string;
+    vueltoBsInput: string;
+  } | null>(null);
 
   const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
   const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
@@ -115,13 +137,13 @@ export default function FacturacionPage() {
 
   const loadInvoices = useCallback(() => {
     if (!companyId) return;
-    const params: Record<string, string> = { companyId, page: String(invoicePage), limit: String(invoiceLimit) };
+    const params: Record<string, string> = { companyId, page: String(invoicePage), limit: String(invoiceLimit), estado: invoiceFilterEstado };
     if (invoiceFilterFrom) params.from = invoiceFilterFrom;
     if (invoiceFilterTo) params.to = invoiceFilterTo;
     if (invoiceFilterCode) params.code = invoiceFilterCode;
     if (invoiceFilterClient) params.client = invoiceFilterClient;
     invoicesApi.list(companyId, params).then(setInvoices).catch(() => {});
-  }, [companyId, invoicePage, invoiceLimit, invoiceFilterFrom, invoiceFilterTo, invoiceFilterCode, invoiceFilterClient]);
+  }, [companyId, invoicePage, invoiceLimit, invoiceFilterEstado, invoiceFilterFrom, invoiceFilterTo, invoiceFilterCode, invoiceFilterClient]);
 
   useEffect(() => { if (tab === 'from-budget') loadBudgets(); }, [tab, loadBudgets]);
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
@@ -392,6 +414,7 @@ export default function FacturacionPage() {
       try {
         const created = await clientsApi.create(companyId, clientForm) as any;
         clientId = created.id;
+        setSelectedClientId(created.id);
       } catch (e) {
         setErrorInvoice(e instanceof Error ? e.message : 'Error al crear cliente');
         setSavingInvoice(false);
@@ -426,6 +449,46 @@ export default function FacturacionPage() {
       }
     }
     if (invVisible('paymentMethods') && invRequired('paymentMethods') && paymentMethods.length === 0) { setErrorInvoice('Forma de pago es obligatoria.'); return; }
+
+    const invFieldConfigForBreakdown = config?.invoiceFieldsConfig ?? {};
+    const invVisibleBreakdown = (key: string) => invFieldConfigForBreakdown[key]?.visible !== false;
+    const foreignCur = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+    let effRate = 1;
+    if (invVisibleBreakdown('rateOfDay')) {
+      if (rateOfDay.trim() && !isNaN(Number(rateOfDay))) effRate = Number(rateOfDay);
+      else if (foreignCur === 'USD' && config?.usdRate != null) effRate = Number(config.usdRate);
+      else if (foreignCur === 'EUR' && config?.eurRate != null) effRate = Number(config.eurRate);
+    } else {
+      if (config?.usdRate != null) effRate = Number(config.usdRate);
+      else if (config?.eurRate != null) effRate = Number(config.eurRate);
+    }
+    const subSinIva = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+    const subConIva = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+    const ivaBs = (subConIva * ivaPercent) / 100;
+    const totalBs = subSinIva + subConIva + ivaBs;
+    const totalForeign = effRate ? totalBs / effRate : 0;
+    const foreignLbl: 'USD' | 'EUR' = foreignCur === 'EUR' ? 'EUR' : 'USD';
+
+    if (config?.invoicePaymentBreakdown) {
+      const soloBolivares = !foreignCur;
+      setPaymentBreakdownModal({
+        totalInBs: totalBs,
+        totalInForeign: totalForeign,
+        rate: effRate,
+        foreignLabel: foreignLbl,
+        soloBolivares,
+        efectivoBs: 0,
+        tarjetaDebito: 0,
+        transferenciaPagoMovil: 0,
+        efectivoUsdEur: 0,
+        zelle: 0,
+        transferenciaPagoMovilRef: '',
+        vueltoUsdInput: '',
+        vueltoBsInput: '',
+      });
+      return;
+    }
+
     setSavingInvoice(true); setErrorInvoice('');
     try {
       const invFieldConfig = config?.invoiceFieldsConfig ?? {};
@@ -447,7 +510,7 @@ export default function FacturacionPage() {
         else effectiveRate = 1;
       }
 
-      await invoicesApi.create(companyId, {
+      const created = await invoicesApi.create(companyId, {
         title: (invVisible('title') ? title.trim() : '') || 'Factura',
         clientId,
         date: new Date().toISOString().slice(0, 10),
@@ -460,10 +523,66 @@ export default function FacturacionPage() {
         deliveryTime: invVisible('deliveryTime') ? deliveryTime.trim() || undefined : undefined,
         validity: invVisible('validity') ? validity.trim() || undefined : undefined,
         items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder, exentoIva: i.exentoIva })),
-      });
-      setTab('list'); loadInvoices();
+      }) as { id: string };
       setTitle(''); setClientRif(''); setClientSearchResult(null); setSelectedClientId(null);
       setItems([]); setRateOfDay(''); setObservations(''); setPaymentMethods([]); setDeliveryTime(''); setValidity('');
+      setSavedInvoiceModal({ invoiceId: created.id });
+    } catch (e) { setErrorInvoice(e instanceof Error ? e.message : 'Error'); } finally { setSavingInvoice(false); }
+  };
+
+  const performCreateInvoice = async () => {
+    if (!companyId || !selectedClientId || !paymentBreakdownModal) return;
+    const montoTransfPagoMovil = Number(paymentBreakdownModal.transferenciaPagoMovil) || 0;
+    const refTransfPagoMovil = String(paymentBreakdownModal.transferenciaPagoMovilRef ?? '').trim();
+    if (montoTransfPagoMovil > 0 && !refTransfPagoMovil) {
+      setErrorInvoice('Si indica monto en Transferencia / Pago móvil, debe ingresar la referencia.');
+      return;
+    }
+    const invFieldConfig = config?.invoiceFieldsConfig ?? {};
+    const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
+    const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+    let effectiveRate = 1;
+    if (invVisible('rateOfDay')) {
+      if (rateOfDay.trim() && !isNaN(Number(rateOfDay))) effectiveRate = Number(rateOfDay);
+      else if (foreign === 'USD' && config?.usdRate != null) effectiveRate = Number(config.usdRate);
+      else if (foreign === 'EUR' && config?.eurRate != null) effectiveRate = Number(config.eurRate);
+    } else {
+      if (config?.usdRate != null) effectiveRate = Number(config.usdRate);
+      else if (config?.eurRate != null) effectiveRate = Number(config.eurRate);
+    }
+    setSavingInvoice(true); setErrorInvoice('');
+    try {
+      const payload: Record<string, unknown> = {
+        title: (invVisible('title') ? title.trim() : '') || 'Factura',
+        clientId: selectedClientId,
+        date: new Date().toISOString().slice(0, 10),
+        ivaPercent,
+        rateOfDay: effectiveRate,
+        currencies,
+        observations: invVisible('observations') ? observations.trim() || undefined : undefined,
+        priority: invVisible('priority') ? priority : 'NORMAL',
+        paymentMethods: invVisible('paymentMethods') ? paymentMethods : [],
+        deliveryTime: invVisible('deliveryTime') ? deliveryTime.trim() || undefined : undefined,
+        validity: invVisible('validity') ? validity.trim() || undefined : undefined,
+        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder, exentoIva: i.exentoIva })),
+      };
+      if (paymentBreakdownModal) {
+        payload.paymentBreakdown = {
+          efectivoBs: paymentBreakdownModal.efectivoBs || 0,
+          tarjetaDebito: paymentBreakdownModal.tarjetaDebito || 0,
+          transferenciaPagoMovil: paymentBreakdownModal.transferenciaPagoMovil || 0,
+          transferenciaPagoMovilRef: paymentBreakdownModal.transferenciaPagoMovilRef?.trim() || null,
+          efectivoUsdEur: paymentBreakdownModal.efectivoUsdEur || 0,
+          zelle: paymentBreakdownModal.zelle || 0,
+          vueltoUsd: parseFloat(paymentBreakdownModal.vueltoUsdInput ?? '') || 0,
+          vueltoBs: parseFloat(paymentBreakdownModal.vueltoBsInput ?? '') || 0,
+        };
+      }
+      const created = await invoicesApi.create(companyId, payload) as { id: string };
+      setPaymentBreakdownModal(null);
+      setTitle(''); setClientRif(''); setClientSearchResult(null); setSelectedClientId(null);
+      setItems([]); setRateOfDay(''); setObservations(''); setPaymentMethods([]); setDeliveryTime(''); setValidity('');
+      setSavedInvoiceModal({ invoiceId: created.id });
     } catch (e) { setErrorInvoice(e instanceof Error ? e.message : 'Error'); } finally { setSavingInvoice(false); }
   };
 
@@ -513,6 +632,43 @@ export default function FacturacionPage() {
     }
   };
 
+  const handleVisualizarInvoicePdf = async (id: string) => {
+    if (!companyId) return;
+    setInvoicePreviewLoading(true);
+    try {
+      const blob = await invoicesApi.getPdfBlob(id, companyId);
+      const url = URL.createObjectURL(blob);
+      setInvoicePreviewModal({ id, url, blob, filename: `factura-${id}.pdf` });
+    } catch (e) {
+      showActionModal('Error al cargar PDF', e instanceof Error ? e.message : 'Error al cargar PDF', 'error');
+    } finally {
+      setInvoicePreviewLoading(false);
+    }
+  };
+
+  const closeInvoicePreviewModal = () => {
+    if (invoicePreviewModal) {
+      URL.revokeObjectURL(invoicePreviewModal.url);
+      setInvoicePreviewModal(null);
+    }
+  };
+
+  const handleInvoicePreviewDownload = () => {
+    if (!invoicePreviewModal) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(invoicePreviewModal.blob);
+    a.download = invoicePreviewModal.filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const handleInvoicePreviewPrint = () => {
+    if (!invoicePreviewModal) return;
+    const w = window.open(invoicePreviewModal.url, '_blank', 'noopener,noreferrer');
+    if (w) setTimeout(() => { w.print(); }, 500);
+    else showActionModal('Impresión', 'Permite ventanas emergentes para imprimir.', 'info');
+  };
+
   const handleDownloadInvoicePdf = async (id: string) => {
     if (!companyId) return;
     try {
@@ -525,6 +681,34 @@ export default function FacturacionPage() {
       URL.revokeObjectURL(url);
     } catch (e) {
       showActionModal('Error al descargar PDF', e instanceof Error ? e.message : 'Error al descargar PDF', 'error');
+    }
+  };
+
+  const handlePrintSavedInvoice = async () => {
+    if (!companyId || !savedInvoiceModal) return;
+    try {
+      const blob = await invoicesApi.getPdfBlob(savedInvoiceModal.invoiceId, companyId);
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank', 'noopener,noreferrer');
+      if (w) setTimeout(() => { w.print(); URL.revokeObjectURL(url); }, 800);
+      else { URL.revokeObjectURL(url); showActionModal('Impresión', 'Permite ventanas emergentes para imprimir.', 'info'); }
+    } catch (e) {
+      showActionModal('Error al imprimir', e instanceof Error ? e.message : 'Error al generar PDF', 'error');
+    }
+  };
+
+  const handleConfirmAnular = async () => {
+    if (!companyId || !anularModal) return;
+    setAnulando(true);
+    try {
+      await invoicesApi.anular(anularModal.id, companyId);
+      setAnularModal(null);
+      loadInvoices();
+      showActionModal('Factura anulada', `La factura ${anularModal.correlative} ha sido anulada correctamente.`, 'success');
+    } catch (e) {
+      showActionModal('Error al anular', e instanceof Error ? e.message : 'No se pudo anular la factura', 'error');
+    } finally {
+      setAnulando(false);
     }
   };
 
@@ -845,13 +1029,23 @@ export default function FacturacionPage() {
                   <input value={invoiceFilterClient} onChange={(e) => setInvoiceFilterClient(e.target.value)} placeholder="Cliente" className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
                 </div>
               )}
-              <div className="flex gap-2 items-center mb-3">
-                <span className="text-sm text-[var(--muted)]">Mostrar</span>
-                <select value={invoiceLimit} onChange={(e) => { setInvoiceLimit(Number(e.target.value)); setInvoicePage(1); }} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-2 py-1">
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                </select>
+              <div className="flex flex-wrap gap-4 items-center mb-3">
+                <div className="flex gap-2 items-center">
+                  <span className="text-sm text-[var(--muted)]">Estado</span>
+                  <select value={invoiceFilterEstado} onChange={(e) => { setInvoiceFilterEstado(e.target.value as 'todas' | 'validas' | 'anuladas'); setInvoicePage(1); }} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-1.5 text-sm">
+                    <option value="validas">Válidas</option>
+                    <option value="anuladas">Anuladas</option>
+                    <option value="todas">Todas</option>
+                  </select>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-sm text-[var(--muted)]">Mostrar</span>
+                  <select value={invoiceLimit} onChange={(e) => { setInvoiceLimit(Number(e.target.value)); setInvoicePage(1); }} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-2 py-1">
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
               </div>
               <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
                 <table className="w-full text-left">
@@ -865,12 +1059,18 @@ export default function FacturacionPage() {
                   </thead>
                   <tbody>
                     {invoices.items.map((inv: any) => (
-                      <tr key={inv.id} className="border-t border-[var(--border)]">
-                        <td className="p-3">{inv.correlative}</td>
+                      <tr key={inv.id} className={`border-t border-[var(--border)] ${inv.anulada ? 'opacity-75' : ''}`}>
+                        <td className="p-3">
+                          <span>{inv.correlative}</span>
+                          {inv.anulada && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded bg-[var(--muted)] text-[var(--background)]">Anulada</span>}
+                        </td>
                         <td className="p-3">{inv.title}</td>
                         <td className="p-3">{inv.client?.name ?? '—'}</td>
-                        <td className="p-3">
-                          <button type="button" onClick={() => handleDownloadInvoicePdf(inv.id)} className="rounded px-2 py-1 text-sm bg-[var(--primary)] text-white">Descargar</button>
+                        <td className="p-3 flex flex-wrap gap-2">
+                          <button type="button" onClick={() => handleVisualizarInvoicePdf(inv.id)} disabled={invoicePreviewLoading} className="rounded px-2 py-1 text-sm bg-[var(--primary)] text-white disabled:opacity-50">Visualizar</button>
+                          {!inv.anulada && (
+                            <button type="button" onClick={() => setAnularModal({ open: true, id: inv.id, correlative: inv.correlative })} className="rounded px-2 py-1 text-sm bg-[var(--destructive)] text-white">Anular</button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -910,6 +1110,23 @@ export default function FacturacionPage() {
               <button type="button" onClick={openRegisterProductModal} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 font-medium">
                 Registrar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: vista previa PDF factura (consultar facturas) */}
+      {invoicePreviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" role="dialog" aria-modal="true">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold text-[var(--foreground)] p-4 border-b border-[var(--border)]">Vista previa de la factura</h2>
+            <div className="flex-1 min-h-0 p-4">
+              <iframe src={invoicePreviewModal.url} title="Vista previa PDF" className="w-full h-[70vh] rounded-lg border border-[var(--border)] bg-white" />
+            </div>
+            <div className="p-4 border-t border-[var(--border)] flex flex-wrap gap-2 justify-end">
+              <button type="button" onClick={handleInvoicePreviewPrint} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium">Imprimir</button>
+              <button type="button" onClick={handleInvoicePreviewDownload} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium">Descargar</button>
+              <button type="button" onClick={closeInvoicePreviewModal} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium">Cerrar</button>
             </div>
           </div>
         </div>
@@ -1025,6 +1242,177 @@ export default function FacturacionPage() {
         </div>
       )}
 
+      {/* Modal desglose del pago */}
+      {paymentBreakdownModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="desglose-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-md w-full my-8 p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="desglose-modal-title" className="font-semibold text-[var(--foreground)] text-lg mb-4">Desglose del pago</h2>
+            <p className="text-sm text-[var(--muted)] mb-4">Total de la factura. Indique los montos por método de pago para ver el restante.</p>
+            <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
+              <span className="text-[var(--muted)]">Total en Bs:</span>
+              <span className="font-medium text-right tabular-nums">{paymentBreakdownModal.totalInBs.toFixed(2)}</span>
+              {!paymentBreakdownModal.soloBolivares && (
+                <>
+                  <span className="text-[var(--muted)]">Total en {paymentBreakdownModal.foreignLabel}:</span>
+                  <span className="font-medium text-right tabular-nums">{paymentBreakdownModal.totalInForeign.toFixed(2)}</span>
+                </>
+              )}
+            </div>
+            <div className="space-y-3 mb-4">
+              {[
+                { key: 'efectivoBs' as const, label: 'Efectivo en bolívares (Bs)' },
+                { key: 'tarjetaDebito' as const, label: 'Tarjeta de débito (Bs)' },
+                { key: 'transferenciaPagoMovil' as const, label: 'Transferencia / Pago móvil (Bs)', withRef: true },
+                ...(!paymentBreakdownModal.soloBolivares
+                  ? [
+                      { key: 'efectivoUsdEur' as const, label: `Efectivo en ${paymentBreakdownModal.foreignLabel}` },
+                      { key: 'zelle' as const, label: 'Zelle' },
+                    ]
+                  : []),
+              ].map(({ key, label, withRef }: { key: keyof typeof paymentBreakdownModal; label: string; withRef?: boolean }) => (
+                <div key={key}>
+                  <label className="block text-sm text-[var(--muted)] mb-1">{label}</label>
+                  <div className="flex gap-2 flex-wrap items-center">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="Monto"
+                      value={typeof paymentBreakdownModal[key] === 'number' ? paymentBreakdownModal[key] : ''}
+                      onChange={(e) => setPaymentBreakdownModal((p) => p ? { ...p, [key]: parseFloat(e.target.value) || 0 } : null)}
+                      className="flex-1 min-w-[100px] rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-sm"
+                    />
+                    {withRef && (
+                      <input
+                        type="text"
+                        placeholder="Referencia (obligatoria si hay monto)"
+                        value={paymentBreakdownModal.transferenciaPagoMovilRef ?? ''}
+                        onChange={(e) => setPaymentBreakdownModal((p) => p ? { ...p, transferenciaPagoMovilRef: e.target.value } : null)}
+                        className="flex-1 min-w-[100px] rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-sm"
+                      />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {(() => {
+              const sumBs = (paymentBreakdownModal.efectivoBs || 0) + (paymentBreakdownModal.tarjetaDebito || 0) + (paymentBreakdownModal.transferenciaPagoMovil || 0);
+              const sumForeign = (paymentBreakdownModal.efectivoUsdEur || 0) + (paymentBreakdownModal.zelle || 0);
+              const rate = paymentBreakdownModal.rate || 1;
+              const vueltoDadoBs = (parseFloat(paymentBreakdownModal.vueltoUsdInput ?? '') || 0) * rate + (parseFloat(paymentBreakdownModal.vueltoBsInput ?? '') || 0);
+              const vueltoDadoUsd = (parseFloat(paymentBreakdownModal.vueltoUsdInput ?? '') || 0) + (rate ? (parseFloat(paymentBreakdownModal.vueltoBsInput ?? '') || 0) / rate : 0);
+              const remainingBs = paymentBreakdownModal.totalInBs - sumBs - sumForeign * rate + vueltoDadoBs;
+              const remainingForeign = paymentBreakdownModal.totalInForeign - sumForeign - sumBs / rate + vueltoDadoUsd;
+              return (
+                <div className="p-3 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm mb-4">
+                  <p className="font-medium text-[var(--foreground)]">Restante por pagar</p>
+                  <p className="text-[var(--muted)] mt-1">En Bs: <span className="font-medium text-[var(--foreground)] tabular-nums">{remainingBs.toFixed(2)}</span></p>
+                  {!paymentBreakdownModal.soloBolivares && (
+                    <p className="text-[var(--muted)]">En {paymentBreakdownModal.foreignLabel}: <span className="font-medium text-[var(--foreground)] tabular-nums">{remainingForeign.toFixed(2)}</span></p>
+                  )}
+                </div>
+              );
+            })()}
+            {(() => {
+              const sumBs = (paymentBreakdownModal.efectivoBs || 0) + (paymentBreakdownModal.tarjetaDebito || 0) + (paymentBreakdownModal.transferenciaPagoMovil || 0);
+              const sumForeign = (paymentBreakdownModal.efectivoUsdEur || 0) + (paymentBreakdownModal.zelle || 0);
+              const rate = paymentBreakdownModal.rate || 1;
+              const totalCoveredBs = sumBs + sumForeign * rate;
+              const vueltoBs = totalCoveredBs - paymentBreakdownModal.totalInBs;
+              const hasExceso = vueltoBs > 0.01;
+              if (!hasExceso) return null;
+              const vueltoUsd = rate ? vueltoBs / rate : 0;
+              const inputUsd = parseFloat(paymentBreakdownModal.vueltoUsdInput ?? '') || 0;
+              const inputBs = parseFloat(paymentBreakdownModal.vueltoBsInput ?? '') || 0;
+              const vueltoDadoBs = inputUsd * rate + inputBs;
+              const vueltoDadoUsd = inputUsd + (rate ? inputBs / rate : 0);
+              const faltaPorDarBs = Math.max(0, vueltoBs - vueltoDadoBs);
+              const faltaPorDarUsd = Math.max(0, vueltoUsd - vueltoDadoUsd);
+              return (
+                <div className="p-3 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm mb-6">
+                  <p className="font-medium text-[var(--foreground)]">Vuelto a devolver</p>
+                  <p className="text-[var(--muted)] mt-1">Total: <span className="font-medium text-[var(--foreground)] tabular-nums">{vueltoBs.toFixed(2)}</span> Bs{!paymentBreakdownModal.soloBolivares && <> (<span className="tabular-nums">{vueltoUsd.toFixed(2)}</span> {paymentBreakdownModal.foreignLabel})</>}</p>
+                  <div className="mt-3 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="text-[var(--muted)] shrink-0">{paymentBreakdownModal.foreignLabel} a dar de vuelto:</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={paymentBreakdownModal.vueltoUsdInput ?? ''}
+                        onChange={(e) => setPaymentBreakdownModal((p) => p ? { ...p, vueltoUsdInput: e.target.value } : null)}
+                        className="w-24 rounded-lg bg-[var(--background)] border border-[var(--border)] px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="text-[var(--muted)] shrink-0">Bolívares a dar de vuelto:</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={paymentBreakdownModal.vueltoBsInput ?? ''}
+                        onChange={(e) => setPaymentBreakdownModal((p) => p ? { ...p, vueltoBsInput: e.target.value } : null)}
+                        className="w-24 rounded-lg bg-[var(--background)] border border-[var(--border)] px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[var(--muted)] mt-2 pt-2 border-t border-[var(--border)]">Falta por dar en Bs: <span className="font-medium text-[var(--foreground)] tabular-nums">{faltaPorDarBs.toFixed(2)}</span></p>
+                  {!paymentBreakdownModal.soloBolivares && (
+                    <p className="text-[var(--muted)] mt-0.5">Falta por dar en {paymentBreakdownModal.foreignLabel}: <span className="font-medium text-[var(--foreground)] tabular-nums">{faltaPorDarUsd.toFixed(2)}</span></p>
+                  )}
+                </div>
+              );
+            })()}
+            {errorInvoice && <p className="text-[var(--destructive)] text-sm mb-2">{errorInvoice}</p>}
+            {(() => {
+              const sumBs = (paymentBreakdownModal.efectivoBs || 0) + (paymentBreakdownModal.tarjetaDebito || 0) + (paymentBreakdownModal.transferenciaPagoMovil || 0);
+              const sumForeign = (paymentBreakdownModal.efectivoUsdEur || 0) + (paymentBreakdownModal.zelle || 0);
+              const rate = paymentBreakdownModal.rate || 1;
+              const totalCoveredBs = sumBs + sumForeign * rate;
+              const vueltoBs = totalCoveredBs - paymentBreakdownModal.totalInBs;
+              const inputUsd = parseFloat(paymentBreakdownModal.vueltoUsdInput ?? '') || 0;
+              const inputBs = parseFloat(paymentBreakdownModal.vueltoBsInput ?? '') || 0;
+              const vueltoDadoBs = inputUsd * rate + inputBs;
+              const exactMatch = Math.abs(totalCoveredBs - paymentBreakdownModal.totalInBs) < 0.01;
+              const excessCoveredByVuelto = vueltoBs > 0.01 && vueltoDadoBs >= vueltoBs - 0.01;
+              const breakdownMatchesTotal = exactMatch || excessCoveredByVuelto;
+              return (
+                <div className="flex gap-2 justify-end">
+                  <button type="button" onClick={() => { setPaymentBreakdownModal(null); setErrorInvoice(''); }} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium">Cancelar</button>
+                  <button type="button" onClick={performCreateInvoice} disabled={savingInvoice || !breakdownMatchesTotal} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium disabled:opacity-50">{savingInvoice ? 'Guardando...' : 'Guardar factura'}</button>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+      {/* Modal factura guardada */}
+      {savedInvoiceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="saved-invoice-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="saved-invoice-modal-title" className="font-semibold text-[var(--foreground)] text-lg mb-2">Factura guardada</h2>
+            <p className="text-sm text-[var(--muted)] mb-6">Su factura ha sido guardada correctamente.</p>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <button type="button" onClick={() => { handleDownloadInvoicePdf(savedInvoiceModal.invoiceId); setSavedInvoiceModal(null); }} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium">Descargar</button>
+              <button type="button" onClick={() => { handlePrintSavedInvoice(); setSavedInvoiceModal(null); }} className="rounded-lg bg-[var(--secondary)] text-white px-4 py-2 text-sm font-medium">Imprimir</button>
+              <button type="button" onClick={() => setSavedInvoiceModal(null)} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal confirmar anular factura */}
+      {anularModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="anular-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="anular-modal-title" className="font-semibold text-[var(--foreground)] text-lg mb-2">Anular factura</h2>
+            <p className="text-sm text-[var(--muted)] mb-4">¿Anular la factura <strong>{anularModal.correlative}</strong>? Esta acción no se puede deshacer.</p>
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setAnularModal(null)} disabled={anulando} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium disabled:opacity-50">Cancelar</button>
+              <button type="button" onClick={handleConfirmAnular} disabled={anulando} className="rounded-lg bg-[var(--destructive)] text-white px-4 py-2 text-sm font-medium disabled:opacity-50">{anulando ? 'Anulando...' : 'Anular'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <ActionModal open={actionModal.open} onClose={closeActionModal} title={actionModal.title} message={actionModal.message} variant={actionModal.variant} />
     </div>
   );

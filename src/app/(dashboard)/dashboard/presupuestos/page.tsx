@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { budgetsApi, clientsApi, productsApi, companiesApi, configApi, inventoryApi } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
-import { IconSearch, IconX, IconDownloadCloud, IconPencil, IconCopy, IconTrash } from '@/components/Icons';
+import { IconSearch, IconX, IconEye, IconPencil, IconCopy, IconTrash } from '@/components/Icons';
 
 const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', 'ZELLE'];
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
@@ -84,6 +84,8 @@ export default function PresupuestosPage() {
   const [editModal, setEditModal] = useState<{ id: string; budget: any | null } | null>(null);
   const [deleteModal, setDeleteModal] = useState<{ id: string; correlative: string } | null>(null);
   const [duplicateModal, setDuplicateModal] = useState<{ id: string; correlative: string } | null>(null);
+  const [previewModal, setPreviewModal] = useState<{ id: string; url: string; blob: Blob; filename: string } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
   const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
@@ -516,19 +518,41 @@ export default function PresupuestosPage() {
     }
   };
 
-  const handleDownloadPdf = async (id: string) => {
+  const handleVisualizarPdf = async (id: string) => {
     if (!companyId) return;
+    setPreviewLoading(true);
     try {
       const blob = await budgetsApi.getPdfBlob(id, companyId);
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `presupuesto-${id}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      setPreviewModal({ id, url, blob, filename: `presupuesto-${id}.pdf` });
     } catch (e) {
-      showActionModal('Error al descargar PDF', e instanceof Error ? e.message : 'Error al descargar PDF', 'error');
+      showActionModal('Error al cargar PDF', e instanceof Error ? e.message : 'Error al cargar PDF', 'error');
+    } finally {
+      setPreviewLoading(false);
     }
+  };
+
+  const closePreviewModal = () => {
+    if (previewModal) {
+      URL.revokeObjectURL(previewModal.url);
+      setPreviewModal(null);
+    }
+  };
+
+  const handlePreviewDownload = () => {
+    if (!previewModal) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(previewModal.blob);
+    a.download = previewModal.filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const handlePreviewPrint = () => {
+    if (!previewModal) return;
+    const w = window.open(previewModal.url, '_blank', 'noopener,noreferrer');
+    if (w) setTimeout(() => { w.print(); }, 500);
+    else showActionModal('Impresión', 'Permite ventanas emergentes para imprimir.', 'info');
   };
 
   const handleDelete = async (id: string) => {
@@ -1059,11 +1083,12 @@ export default function PresupuestosPage() {
                           <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
-                              onClick={() => handleDownloadPdf(b.id)}
-                              title="Descargar PDF"
-                              className="inline-flex items-center justify-center rounded-full bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white w-8 h-8 transition-colors"
+                              onClick={() => handleVisualizarPdf(b.id)}
+                              disabled={previewLoading}
+                              title="Visualizar"
+                              className="inline-flex items-center justify-center rounded-full bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white w-8 h-8 transition-colors disabled:opacity-50"
                             >
-                              <IconDownloadCloud className="w-4 h-4" />
+                              <IconEye className="w-4 h-4" />
                             </button>
                             <button
                               type="button"
@@ -1116,6 +1141,21 @@ export default function PresupuestosPage() {
                 <div className="flex gap-2 mt-4">
                   <button type="button" onClick={() => handleDelete(deleteModal.id)} className="rounded-lg bg-[var(--destructive)] text-white px-4 py-2">Sí, eliminar</button>
                   <button type="button" onClick={() => setDeleteModal(null)} className="rounded-lg bg-[var(--card-hover)] px-4 py-2">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {previewModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" role="dialog" aria-modal="true">
+              <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                <h2 className="text-lg font-semibold text-[var(--foreground)] p-4 border-b border-[var(--border)]">Vista previa del presupuesto</h2>
+                <div className="flex-1 min-h-0 p-4">
+                  <iframe src={previewModal.url} title="Vista previa PDF" className="w-full h-[70vh] rounded-lg border border-[var(--border)] bg-white" />
+                </div>
+                <div className="p-4 border-t border-[var(--border)] flex flex-wrap gap-2 justify-end">
+                  <button type="button" onClick={handlePreviewPrint} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium">Imprimir</button>
+                  <button type="button" onClick={handlePreviewDownload} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 text-sm font-medium">Descargar</button>
+                  <button type="button" onClick={closePreviewModal} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium">Cerrar</button>
                 </div>
               </div>
             </div>
