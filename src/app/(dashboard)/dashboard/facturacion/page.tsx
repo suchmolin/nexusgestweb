@@ -1263,7 +1263,7 @@ export default function FacturacionPage() {
                       min={0}
                       step={0.01}
                       placeholder="Monto"
-                      value={paymentBreakdownModal[key] ?? ''}
+                      value={typeof paymentBreakdownModal[key] === 'number' ? paymentBreakdownModal[key] : ''}
                       onChange={(e) => setPaymentBreakdownModal((p) => p ? { ...p, [key]: parseFloat(e.target.value) || 0 } : null)}
                       className="flex-1 min-w-[100px] rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-sm"
                     />
