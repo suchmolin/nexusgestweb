@@ -9,6 +9,20 @@ import { IconSearch, IconX, IconEye, IconPencil, IconCopy, IconTrash } from '@/c
 const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', 'ZELLE'];
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
 const PRODUCT_SEARCH_DEBOUNCE_MS = 280;
+const CURRENCIES_STORAGE_KEY = 'nexusgest_presupuesto_currencies';
+
+function getInitialCurrenciesFromStorage(key: string): string[] {
+  if (typeof window === 'undefined') return ['BS'];
+  try {
+    const s = localStorage.getItem(key);
+    if (!s) return ['BS'];
+    const p = JSON.parse(s) as unknown;
+    if (!Array.isArray(p) || p.length < 1 || p.length > 2) return ['BS'];
+    if (p.includes('USD') && p.includes('EUR')) return ['BS'];
+    if (p.every((c) => ['BS', 'USD', 'EUR'].includes(String(c)))) return p;
+  } catch {}
+  return ['BS'];
+}
 
 function getDefaultCurrencyFromConfig(cfg: { currencySymbol?: string } | null): 'USD' | 'EUR' | 'BS' | null {
   const symbol = cfg?.currencySymbol;
@@ -53,7 +67,7 @@ export default function PresupuestosPage() {
   const productSearchModalInputRef = useRef<HTMLInputElement>(null);
   const [ivaPercent, setIvaPercent] = useState(12);
   const [rateOfDay, setRateOfDay] = useState('');
-  const [currencies, setCurrencies] = useState<string[]>(['BS']);
+  const [currencies, setCurrencies] = useState<string[]>(() => getInitialCurrenciesFromStorage(CURRENCIES_STORAGE_KEY));
   const [observations, setObservations] = useState('');
   const [priority, setPriority] = useState<'NORMAL' | 'URGENT'>('NORMAL');
   const [paymentMethods, setPaymentMethods] = useState<string[]>([]);
@@ -112,8 +126,7 @@ export default function PresupuestosPage() {
       else if (hasEurRate && !hasUsdRate) foreign = 'EUR';
       const nextCurrencies: string[] = [defaultCurrency];
       if (foreign && foreign !== defaultCurrency) nextCurrencies.push(foreign);
-      setCurrencies(nextCurrencies);
-      // Si la tasa viene de Configuración y ya sabemos qué moneda extranjera se usa, mostrarla en el campo.
+      if (!localStorage.getItem(CURRENCIES_STORAGE_KEY)) setCurrencies(nextCurrencies);
       if (foreign === 'USD' && c?.usdRate != null && !isNaN(Number(c.usdRate))) {
         setRateOfDay(Number(c.usdRate).toFixed(2));
       } else if (foreign === 'EUR' && c?.eurRate != null && !isNaN(Number(c.eurRate))) {
@@ -122,6 +135,12 @@ export default function PresupuestosPage() {
       setIvaPercent(c?.defaultIvaPercent != null ? Number(c.defaultIvaPercent) : 12);
     }).catch(() => setConfig(null));
   }, [companyId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CURRENCIES_STORAGE_KEY, JSON.stringify(currencies));
+    } catch {}
+  }, [currencies]);
 
   const loadList = useCallback(() => {
     if (!companyId) return;
@@ -864,6 +883,8 @@ export default function PresupuestosPage() {
                         <th className="p-2">Nombre</th>
                         <th className="p-2">Cant.</th>
                         <th className="p-2">P. unit. ({displaySymbol})</th>
+                        {currencies.includes('USD') && usdRateNum != null && <th className="p-2">P. unit. (USD)</th>}
+                        {currencies.includes('EUR') && eurRateNum != null && <th className="p-2">P. unit. (EUR)</th>}
                         <th className="p-2">Total ({displaySymbol})</th>
                         <th className="p-2">IVA ({displaySymbol})</th>
                         <th className="p-2"></th>
@@ -876,6 +897,8 @@ export default function PresupuestosPage() {
                         const unitDisplay = displayCurrency === 'BS' ? (it.unitPrice ?? 0) : (it.unitPrice ?? 0) / displayRate;
                         const lineTotalDisplay = displayCurrency === 'BS' ? lineTotalBs : lineTotalBs / displayRate;
                         const lineIvaDisplay = displayCurrency === 'BS' ? lineIvaBs : lineIvaBs / displayRate;
+                        const unitUsd = usdRateNum ? (it.unitPrice ?? 0) / usdRateNum : 0;
+                        const unitEur = eurRateNum ? (it.unitPrice ?? 0) / eurRateNum : 0;
                         return (
                         <tr key={it.productId} className="border-t border-[var(--border)]">
                           <td className="p-2">{it.code}</td>
@@ -890,6 +913,8 @@ export default function PresupuestosPage() {
                             />
                           </td>
                           <td className="p-2 text-right tabular-nums">{unitDisplay.toFixed(2)}</td>
+                          {currencies.includes('USD') && usdRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{unitUsd.toFixed(2)}</td>}
+                          {currencies.includes('EUR') && eurRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{unitEur.toFixed(2)}</td>}
                           <td className="p-2 text-right tabular-nums">{lineTotalDisplay.toFixed(2)}</td>
                           <td className="p-2 text-right tabular-nums text-[var(--muted)]">{it.exentoIva ? '—' : lineIvaDisplay.toFixed(2)}</td>
                           <td className="p-2">
@@ -1221,6 +1246,8 @@ export default function PresupuestosPage() {
                             <th className="p-2">Nombre</th>
                             <th className="p-2">Cant.</th>
                             <th className="p-2">P. unit. ({displaySymbol})</th>
+                            {currencies.includes('USD') && usdRateNum != null && <th className="p-2">P. unit. (USD)</th>}
+                            {currencies.includes('EUR') && eurRateNum != null && <th className="p-2">P. unit. (EUR)</th>}
                             <th className="p-2">Total ({displaySymbol})</th>
                             <th className="p-2">IVA ({displaySymbol})</th>
                             <th className="p-2"></th>
@@ -1233,6 +1260,8 @@ export default function PresupuestosPage() {
                             const unitDisplay = displayCurrency === 'BS' ? (it.unitPrice ?? 0) : (it.unitPrice ?? 0) / displayRate;
                             const lineTotalDisplay = displayCurrency === 'BS' ? lineTotalBs : lineTotalBs / displayRate;
                             const lineIvaDisplay = displayCurrency === 'BS' ? lineIvaBs : lineIvaBs / displayRate;
+                            const unitUsd = usdRateNum ? (it.unitPrice ?? 0) / usdRateNum : 0;
+                            const unitEur = eurRateNum ? (it.unitPrice ?? 0) / eurRateNum : 0;
                             return (
                               <tr key={it.productId} className="border-t border-[var(--border)]">
                                 <td className="p-2">{it.code}</td>
@@ -1247,6 +1276,8 @@ export default function PresupuestosPage() {
                                   />
                                 </td>
                                 <td className="p-2 text-right tabular-nums">{unitDisplay.toFixed(2)}</td>
+                                {currencies.includes('USD') && usdRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{unitUsd.toFixed(2)}</td>}
+                                {currencies.includes('EUR') && eurRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{unitEur.toFixed(2)}</td>}
                                 <td className="p-2 text-right tabular-nums">{lineTotalDisplay.toFixed(2)}</td>
                                 <td className="p-2 text-right tabular-nums text-[var(--muted)]">{it.exentoIva ? '—' : lineIvaDisplay.toFixed(2)}</td>
                                 <td className="p-2">
