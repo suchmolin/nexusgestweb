@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { productsApi, inventoryApi, companiesApi } from '@/lib/api';
+import { productsApi, inventoryApi, companiesApi, configApi } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
+import { hasSectionAccess } from '@/lib/role-modules';
 
 function getCompanyId(user: { role: string; companyId: string | null }, selected: string | null): string | null {
   return user.role === 'SUPER_ADMIN' ? selected : user.companyId;
@@ -16,6 +17,37 @@ export default function InventarioPage() {
   const companyId = user ? getCompanyId(user, selectedCompanyId) : null;
 
   const [subTab, setSubTab] = useState<'add' | 'ingreso' | 'egreso' | 'consulta'>('consulta');
+  const [allowedModules, setAllowedModules] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!companyId || !user || user.role === 'SUPER_ADMIN') {
+      setAllowedModules(null);
+      return;
+    }
+    configApi.getRoleModules(companyId).then((res) => {
+      const list =
+        user.role === 'ADMIN' ? (res.admin?.modules ?? []) :
+        user.role === 'VENDEDOR' ? (res.vendedor?.modules ?? []) :
+        user.role === 'SUPERVISOR' ? (res.supervisor?.modules ?? []) : [];
+      setAllowedModules(list);
+    }).catch(() => setAllowedModules([]));
+  }, [companyId, user?.role, user?.companyId]);
+
+  const inventarioTabs: { id: 'add' | 'ingreso' | 'egreso' | 'consulta'; label: string }[] = [
+    { id: 'consulta', label: 'Consulta' },
+    { id: 'ingreso', label: 'Ingreso' },
+    { id: 'egreso', label: 'Egreso' },
+    { id: 'add', label: 'Agregar producto' },
+  ];
+  const allowedTabs = allowedModules === null
+    ? inventarioTabs
+    : inventarioTabs.filter((t) => hasSectionAccess('INVENTARIO', t.id, allowedModules));
+
+  useEffect(() => {
+    if (allowedTabs.length > 0 && !allowedTabs.some((t) => t.id === subTab)) {
+      setSubTab(allowedTabs[0].id);
+    }
+  }, [allowedTabs, subTab]);
 
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
@@ -200,12 +232,9 @@ export default function InventarioPage() {
       {companyId && (
         <>
           <div className="flex gap-2 mt-6 border-b border-[var(--border)] flex-wrap">
-            {(['consulta', 'ingreso', 'egreso', 'add'] as const).map((t) => (
-              <button key={t} type="button" onClick={() => setSubTab(t)} className={`px-4 py-2 font-medium rounded-t-lg ${subTab === t ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}>
-                {t === 'consulta' && 'Consulta'}
-                {t === 'ingreso' && 'Ingreso'}
-                {t === 'egreso' && 'Egreso'}
-                {t === 'add' && 'Agregar producto'}
+            {allowedTabs.map((t) => (
+              <button key={t.id} type="button" onClick={() => setSubTab(t.id)} className={`px-4 py-2 font-medium rounded-t-lg ${subTab === t.id ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}>
+                {t.label}
               </button>
             ))}
           </div>

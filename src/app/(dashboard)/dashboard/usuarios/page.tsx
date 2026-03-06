@@ -52,6 +52,7 @@ export default function UsuariosPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [companiesForDropdown, setCompaniesForDropdown] = useState<{ id: string; name: string }[]>([]);
+  const [createdUserModal, setCreatedUserModal] = useState<string | null>(null);
 
   const loadCompanies = () => {
     if (!isSuperAdmin) return;
@@ -135,9 +136,10 @@ export default function UsuariosPage() {
       return;
     }
     setCreating(true);
+    const usernameToCreate = newUsername.trim();
     try {
       await usersApi.createUser({
-        username: newUsername.trim(),
+        username: usernameToCreate,
         password: newPassword,
         role: newRole,
         ...(newRole === 'ADMIN' && {
@@ -159,6 +161,7 @@ export default function UsuariosPage() {
       setCompanyPhone('');
       setCompanyEmail('');
       if (isSuperAdmin) loadCompanies();
+      setCreatedUserModal(usernameToCreate);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al crear usuario');
     } finally {
@@ -372,6 +375,20 @@ export default function UsuariosPage() {
           <button type="button" onClick={handleCreateUser} disabled={creating} className="mt-4 rounded-lg bg-[var(--primary)] text-white px-4 py-2 font-medium disabled:opacity-50">
             {creating ? 'Creando...' : 'Crear usuario'}
           </button>
+        </div>
+      )}
+
+      {createdUserModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="created-user-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="created-user-modal-title" className="font-semibold text-[var(--foreground)] text-lg mb-2">Usuario creado</h2>
+            <p className="text-sm text-[var(--muted)] mb-6">El usuario <strong className="text-[var(--foreground)]">{createdUserModal}</strong> ha sido creado correctamente.</p>
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setCreatedUserModal(null)} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium">
+                Aceptar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

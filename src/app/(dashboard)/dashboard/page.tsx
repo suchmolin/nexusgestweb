@@ -1,8 +1,11 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModuleIcon } from '@/components/Icons';
+import { configApi } from '@/lib/api';
+import { hasModuleAccess } from '@/lib/role-modules';
 
 const MODULES: { key: string; label: string; href: string; desc: string; superAdminOnly?: boolean }[] = [
   { key: 'GESTION_USUARIOS', label: 'Gestión de usuarios', href: '/dashboard/usuarios', desc: 'Administrar usuarios admin y módulos por empresa', superAdminOnly: true },
@@ -18,8 +21,39 @@ const MODULES: { key: string; label: string; href: string; desc: string; superAd
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const [allowedModules, setAllowedModules] = useState<string[] | null>(null);
+
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const visible = MODULES.filter((m) => !m.superAdminOnly || isSuperAdmin);
+  const isAdminOrSuperAdmin = isSuperAdmin || user?.role === 'ADMIN';
+
+  useEffect(() => {
+    if (!user?.companyId || isSuperAdmin) {
+      setAllowedModules(null);
+      return;
+    }
+    if (user.role === 'ADMIN') {
+      configApi.getRoleModules(user.companyId).then((res) => {
+        setAllowedModules(res.admin?.enabled ? (res.admin.modules ?? []) : []);
+      }).catch(() => setAllowedModules([]));
+      return;
+    }
+    if (user.role === 'VENDEDOR' || user.role === 'SUPERVISOR') {
+      configApi.getRoleModules(user.companyId).then((res) => {
+        const roleData = user.role === 'VENDEDOR' ? res.vendedor : res.supervisor;
+        setAllowedModules(roleData?.enabled ? (roleData.modules ?? []) : []);
+      }).catch(() => setAllowedModules([]));
+      return;
+    }
+    setAllowedModules(null);
+  }, [user?.role, user?.companyId, isSuperAdmin]);
+
+  const visible = MODULES.filter((m) => {
+    if (m.key === 'GESTION_USUARIOS' && !isAdminOrSuperAdmin) return false;
+    if (m.superAdminOnly && !isSuperAdmin) return false;
+    if (isSuperAdmin) return true;
+    if (allowedModules === null) return true;
+    return hasModuleAccess(m.key, allowedModules);
+  });
 
   return (
     <div className="p-6 md:p-8">

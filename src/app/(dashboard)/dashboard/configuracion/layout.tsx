@@ -2,9 +2,10 @@
 
 import { useState, useEffect, createContext, useContext } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { companiesApi } from '@/lib/api';
+import { companiesApi, configApi } from '@/lib/api';
+import { hasSectionAccess } from '@/lib/role-modules';
 
 function getCompanyId(user: { role: string; companyId: string | null } | null, selected: string | null): string | null {
   return user?.role === 'SUPER_ADMIN' ? selected : user?.companyId ?? null;
@@ -30,28 +31,61 @@ export function useConfigContext() {
   return ctx;
 }
 
-const NAV = [
-  { href: '/dashboard/configuracion/empresa', label: 'Empresa' },
-  { href: '/dashboard/configuracion/presupuestos-facturas', label: 'Presupuestos y facturas' },
-  { href: '/dashboard/configuracion/moneda-tasa', label: 'Moneda y tasa' },
+const NAV: { href: string; label: string; sectionId: string }[] = [
+  { href: '/dashboard/configuracion/empresa', label: 'Empresa', sectionId: 'empresa' },
+  { href: '/dashboard/configuracion/presupuestos-facturas', label: 'Presupuestos y facturas', sectionId: 'presupuestos-facturas' },
+  { href: '/dashboard/configuracion/moneda-tasa', label: 'Moneda y tasa', sectionId: 'moneda-tasa' },
 ];
 
 export default function ConfiguracionLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [allowedModules, setAllowedModules] = useState<string[] | null>(null);
 
   useEffect(() => {
-    if (user?.role === 'SUPER_ADMIN') companiesApi.list().then(setCompanies).catch(() => {});
+    if (user?.role === 'SUPER_ADMIN') {
+      companiesApi
+        .list()
+        .then((list) => {
+          setCompanies(list);
+          if (list.length > 0) setSelectedCompanyId((prev) => prev ?? list[0].id);
+        })
+        .catch(() => {});
+    }
   }, [user?.role]);
 
   useEffect(() => {
-    if (user?.role === 'SUPER_ADMIN' && companies.length > 0 && !selectedCompanyId) setSelectedCompanyId(companies[0].id);
     if (user?.role !== 'SUPER_ADMIN' && user?.companyId) setSelectedCompanyId(user.companyId);
-  }, [user, companies, selectedCompanyId]);
+  }, [user?.role, user?.companyId]);
 
   const companyId = user ? getCompanyId(user, selectedCompanyId) : null;
+
+  useEffect(() => {
+    if (!companyId || !user || user.role === 'SUPER_ADMIN') {
+      setAllowedModules(null);
+      return;
+    }
+    configApi.getRoleModules(companyId).then((res) => {
+      const list =
+        user.role === 'ADMIN' ? (res.admin?.modules ?? []) :
+        user.role === 'VENDEDOR' ? (res.vendedor?.modules ?? []) :
+        user.role === 'SUPERVISOR' ? (res.supervisor?.modules ?? []) : [];
+      setAllowedModules(list);
+    }).catch(() => setAllowedModules([]));
+  }, [companyId, user?.role, user?.companyId]);
+
+  const allowedNav = allowedModules === null ? NAV : NAV.filter((item) => hasSectionAccess('CONFIGURACION', item.sectionId, allowedModules));
+  const currentSectionId = pathname?.split('/').pop() ?? '';
+  const canAccessCurrent = allowedModules === null || hasSectionAccess('CONFIGURACION', currentSectionId, allowedModules);
+
+  useEffect(() => {
+    if (allowedModules === null || canAccessCurrent) return;
+    if (allowedNav.length > 0) router.replace(allowedNav[0].href);
+    else router.replace('/dashboard');
+  }, [allowedModules, canAccessCurrent, allowedNav, router]);
 
   if (!user) return null;
 
@@ -77,7 +111,7 @@ export default function ConfiguracionLayout({ children }: { children: React.Reac
         )}
 
         <div className="flex gap-2 mt-6 border-b border-[var(--border)]">
-          {NAV.map(({ href, label }) => (
+          {allowedNav.map(({ href, label }) => (
             <Link
               key={href}
               href={href}

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { configApi } from '@/lib/api';
+import { hasModuleAccess } from '@/lib/role-modules';
 import {
   ModuleIcon,
   IconHome,
@@ -62,7 +63,7 @@ export function Sidebar({
   const { user, logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
-  const [adminAllowedModules, setAdminAllowedModules] = useState<string[] | null>(null);
+  const [allowedModules, setAllowedModules] = useState<string[] | null>(null);
 
   useEffect(() => {
     setCollapsed(getStoredCollapsed());
@@ -78,25 +79,32 @@ export function Sidebar({
   const isAdminOrSuperAdmin = isSuperAdmin || user?.role === 'ADMIN';
 
   useEffect(() => {
-    if (user?.role === 'ADMIN' && user?.companyId) {
-      configApi.getRoleModules(user.companyId).then((res) => {
-        if (res.admin?.enabled) {
-          setAdminAllowedModules(res.admin.modules ?? []);
-        } else {
-          setAdminAllowedModules(null);
-        }
-      }).catch(() => setAdminAllowedModules(null));
-    } else {
-      setAdminAllowedModules(null);
+    if (!user?.companyId || isSuperAdmin) {
+      setAllowedModules(null);
+      return;
     }
-  }, [user?.role, user?.companyId]);
+    if (user.role === 'ADMIN') {
+      configApi.getRoleModules(user.companyId).then((res) => {
+        setAllowedModules(res.admin?.enabled ? (res.admin.modules ?? []) : []);
+      }).catch(() => setAllowedModules([]));
+      return;
+    }
+    if (user.role === 'VENDEDOR' || user.role === 'SUPERVISOR') {
+      configApi.getRoleModules(user.companyId).then((res) => {
+        const roleData = user.role === 'VENDEDOR' ? res.vendedor : res.supervisor;
+        setAllowedModules(roleData?.enabled ? (roleData.modules ?? []) : []);
+      }).catch(() => setAllowedModules([]));
+      return;
+    }
+    setAllowedModules(null);
+  }, [user?.role, user?.companyId, isSuperAdmin]);
 
   const visibleModules = MODULES.filter((m) => {
     if (m.key === 'GESTION_USUARIOS' && !isAdminOrSuperAdmin) return false;
     if (m.superAdminOnly && !isSuperAdmin) return false;
-    if (m.key === 'CIERRE_CAJA') return true;
-    if (user?.role === 'ADMIN' && adminAllowedModules !== null && !adminAllowedModules.includes(m.key)) return false;
-    return true;
+    if (isSuperAdmin) return true;
+    if (allowedModules === null) return true;
+    return hasModuleAccess(m.key, allowedModules);
   });
 
   const widthClass = collapsed ? 'w-[4.5rem]' : 'w-64';
