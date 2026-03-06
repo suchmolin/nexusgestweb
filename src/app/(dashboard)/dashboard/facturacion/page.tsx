@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { invoicesApi, budgetsApi, clientsApi, productsApi, companiesApi, configApi, inventoryApi } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 import { IconSearch, IconX } from '@/components/Icons';
+import { hasSectionAccess } from '@/lib/role-modules';
 
 const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', 'ZELLE'];
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
@@ -48,6 +49,38 @@ export default function FacturacionPage() {
   const companyId = user ? getCompanyId(user, selectedCompanyId) : null;
 
   const [tab, setTab] = useState<'from-budget' | 'new' | 'list'>('new');
+  const [allowedModules, setAllowedModules] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!companyId || !user || user.role === 'SUPER_ADMIN') {
+      setAllowedModules(null);
+      return;
+    }
+    configApi.getRoleModules(companyId).then((res) => {
+      const list =
+        user.role === 'ADMIN' ? (res.admin?.modules ?? []) :
+        user.role === 'VENDEDOR' ? (res.vendedor?.modules ?? []) :
+        user.role === 'SUPERVISOR' ? (res.supervisor?.modules ?? []) : [];
+      setAllowedModules(list);
+    }).catch(() => setAllowedModules([]));
+  }, [companyId, user?.role, user?.companyId]);
+
+  const facturacionTabs = [
+    { id: 'new' as const, label: 'Nueva factura' },
+    { id: 'from-budget' as const, label: 'Desde presupuesto' },
+    { id: 'list' as const, label: 'Consultar facturas' },
+  ];
+  const allowedTabs = allowedModules === null
+    ? facturacionTabs
+    : facturacionTabs.filter((t) => hasSectionAccess('FACTURACION', t.id, allowedModules));
+  const canSeeTab = (sectionId: 'new' | 'from-budget' | 'list') =>
+    allowedModules === null || hasSectionAccess('FACTURACION', sectionId, allowedModules);
+
+  useEffect(() => {
+    if (allowedTabs.length > 0 && !allowedTabs.some((t) => t.id === tab)) {
+      setTab(allowedTabs[0].id);
+    }
+  }, [allowedTabs, tab]);
 
   const [budgets, setBudgets] = useState<{ items: any[]; total: number }>({ items: [], total: 0 });
   const [budgetPage, setBudgetPage] = useState(1);
@@ -758,27 +791,16 @@ export default function FacturacionPage() {
       {companyId && (
         <>
           <div className="flex gap-2 mt-6 border-b border-[var(--border)] flex-wrap">
-            <button
-              type="button"
-              onClick={() => setTab('new')}
-              className={`px-4 py-2 font-medium rounded-t-lg ${tab === 'new' ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
-            >
-              Nueva factura
-            </button>
-            <button
-              type="button"
-              onClick={() => { setTab('from-budget'); setSelectedBudget(null); }}
-              className={`px-4 py-2 font-medium rounded-t-lg ${tab === 'from-budget' ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
-            >
-              Desde presupuesto
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('list')}
-              className={`px-4 py-2 font-medium rounded-t-lg ${tab === 'list' ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
-            >
-              Consultar facturas
-            </button>
+            {allowedTabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => { setTab(t.id); if (t.id === 'from-budget') setSelectedBudget(null); }}
+                className={`px-4 py-2 font-medium rounded-t-lg ${tab === t.id ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
 
           {tab === 'from-budget' && (

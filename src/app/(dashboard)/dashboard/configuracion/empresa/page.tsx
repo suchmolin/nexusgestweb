@@ -4,15 +4,24 @@ import { useState, useEffect, useRef } from 'react';
 import { useConfigContext } from '../layout';
 import { configApi, companiesApi, uploadImage } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
+import {
+  MODULE_LABELS,
+  MODULE_SECTIONS,
+  SIMPLE_MODULE_KEYS,
+  sectionKey,
+  normalizeModulesForDisplay,
+} from '@/lib/role-modules';
 
-const MODULE_LABELS: Record<string, string> = {
-  CONFIGURACION: 'Configuración',
-  CLIENTES: 'Clientes',
-  PRESUPUESTOS: 'Presupuestos',
-  FACTURACION: 'Facturación',
-  INVENTARIO: 'Inventario',
-  ADMINISTRACION: 'Administración',
-  LOGS: 'Logs',
+type RoleModulesState = {
+  admin: { enabled: boolean; modules: string[] };
+  vendedor: { enabled: boolean; modules: string[] };
+  supervisor: { enabled: boolean; modules: string[] };
+};
+
+const initialRoleModules: RoleModulesState = {
+  admin: { enabled: false, modules: [] },
+  vendedor: { enabled: false, modules: [] },
+  supervisor: { enabled: false, modules: [] },
 };
 
 export default function ConfigEmpresaPage() {
@@ -26,7 +35,7 @@ export default function ConfigEmpresaPage() {
   const [primaryColor, setPrimaryColor] = useState('#2563eb');
   const [secondaryColor, setSecondaryColor] = useState('#7c3aed');
   const [alternativeColor, setAlternativeColor] = useState('#0891b2');
-  const [roleModules, setRoleModules] = useState<{ vendedor: { enabled: boolean; modules: string[] }; supervisor: { enabled: boolean; modules: string[] } }>({ vendedor: { enabled: false, modules: [] }, supervisor: { enabled: false, modules: [] } });
+  const [roleModules, setRoleModules] = useState<RoleModulesState>(initialRoleModules);
   const [savingCompany, setSavingCompany] = useState(false);
   const [savingRoles, setSavingRoles] = useState(false);
   const [logoUrl, setLogoUrl] = useState('');
@@ -56,10 +65,16 @@ export default function ConfigEmpresaPage() {
       if (c?.secondaryColor) { root.style.setProperty('--secondary', c.secondaryColor); root.style.setProperty('--secondary-hover', c.secondaryColor); }
       if (c?.alternativeColor) { root.style.setProperty('--alternative', c.alternativeColor); root.style.setProperty('--alternative-hover', c.alternativeColor); }
     }).catch(() => {});
-    configApi.getRoleModules(companyId).then((res) => setRoleModules({
-      vendedor: res.vendedor ?? { enabled: false, modules: [] },
-      supervisor: res.supervisor ?? { enabled: false, modules: [] },
-    })).catch(() => setRoleModules({ vendedor: { enabled: false, modules: [] }, supervisor: { enabled: false, modules: [] } }));
+    configApi.getRoleModules(companyId).then((res) => {
+      const a = res.admin ?? { enabled: false, modules: [] };
+      const v = res.vendedor ?? { enabled: false, modules: [] };
+      const s = res.supervisor ?? { enabled: false, modules: [] };
+      setRoleModules({
+        admin: { ...a, modules: normalizeModulesForDisplay(a.modules) },
+        vendedor: { ...v, modules: normalizeModulesForDisplay(v.modules) },
+        supervisor: { ...s, modules: normalizeModulesForDisplay(s.modules) },
+      });
+    }).catch(() => setRoleModules(initialRoleModules));
   }, [companyId]);
 
   const handleSaveColors = async () => {
@@ -76,6 +91,26 @@ export default function ConfigEmpresaPage() {
       showActionModal('Colores guardados', 'Los colores del sistema se han actualizado.', 'success');
     } catch (e) {
       showActionModal('Error', e instanceof Error ? e.message : 'Error al guardar', 'error');
+    }
+  };
+
+  const handleSaveRoles = async () => {
+    if (!companyId) return;
+    setSavingRoles(true);
+    try {
+      await configApi.updateRoleModules(companyId, {
+        vendedor: roleModules.vendedor,
+        supervisor: roleModules.supervisor,
+      });
+      showActionModal(
+        'Roles guardados',
+        'Los roles y módulos se han actualizado correctamente.',
+        'success',
+      );
+    } catch (e) {
+      showActionModal('Error', e instanceof Error ? e.message : 'Error', 'error');
+    } finally {
+      setSavingRoles(false);
     }
   };
 
@@ -166,8 +201,8 @@ export default function ConfigEmpresaPage() {
         </section>
 
         <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
-          <h2 className="font-semibold text-[var(--foreground)] mb-3">Roles vendedor y supervisor</h2>
-          <p className="text-sm text-[var(--muted)] mb-3">Activa los roles y define qué módulos puede ver cada uno.</p>
+          <h2 className="font-semibold text-[var(--foreground)] mb-3">Roles: Vendedor y Supervisor</h2>
+          <p className="text-sm text-[var(--muted)] mb-3">Define qué módulos y secciones pueden ver los roles Vendedor y Supervisor para esta empresa.</p>
           <div className="space-y-4">
             <div>
               <label className="flex items-center gap-2 font-medium">
@@ -175,34 +210,115 @@ export default function ConfigEmpresaPage() {
                 Vendedor
               </label>
               {roleModules.vendedor.enabled && (
-                <div className="mt-2 flex flex-wrap gap-2 ml-4">
-                  {Object.entries(MODULE_LABELS).filter(([k]) => k !== 'GESTION_USUARIOS').map(([key, label]) => (
-                    <label key={key} className="flex items-center gap-1 text-sm">
+                <div className="mt-2 ml-4 space-y-3">
+                  {SIMPLE_MODULE_KEYS.filter((k) => k !== 'GESTION_USUARIOS').map((key) => (
+                    <label key={key} className="flex items-center gap-2 text-sm">
                       <input type="checkbox" checked={roleModules.vendedor.modules.includes(key)} onChange={(e) => setRoleModules((prev) => ({ ...prev, vendedor: { ...prev.vendedor, modules: e.target.checked ? [...prev.vendedor.modules, key] : prev.vendedor.modules.filter((m) => m !== key) } }))} />
-                      {label}
+                      {MODULE_LABELS[key] ?? key}
                     </label>
+                  ))}
+                  {Object.entries(MODULE_SECTIONS).map(([moduleKey, { label: moduleLabel, sections }]) => (
+                    <div key={moduleKey} className="pl-0">
+                      <p className="text-sm font-medium text-[var(--foreground)] mb-1.5">{moduleLabel}</p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 ml-2">
+                        {sections.map(({ id, label: sectionLabel }) => {
+                          const sk = sectionKey(moduleKey, id);
+                          return (
+                            <label key={sk} className="flex items-center gap-1.5 text-sm text-[var(--muted)]">
+                              <input type="checkbox" checked={roleModules.vendedor.modules.includes(sk)} onChange={(e) => setRoleModules((prev) => ({ ...prev, vendedor: { ...prev.vendedor, modules: e.target.checked ? [...prev.vendedor.modules, sk] : prev.vendedor.modules.filter((m) => m !== sk) } }))} />
+                              {sectionLabel}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
             </div>
             <div>
               <label className="flex items-center gap-2 font-medium">
-                <input type="checkbox" checked={roleModules.supervisor.enabled} onChange={(e) => setRoleModules((prev) => ({ ...prev, supervisor: { ...prev.supervisor, enabled: e.target.checked } }))} />
+                <input
+                  type="checkbox"
+                  checked={roleModules.supervisor.enabled}
+                  onChange={(e) =>
+                    setRoleModules((prev) => ({
+                      ...prev,
+                      supervisor: { ...prev.supervisor, enabled: e.target.checked },
+                    }))
+                  }
+                />
                 Supervisor
               </label>
               {roleModules.supervisor.enabled && (
-                <div className="mt-2 flex flex-wrap gap-2 ml-4">
-                  {Object.entries(MODULE_LABELS).filter(([k]) => k !== 'GESTION_USUARIOS').map(([key, label]) => (
+                <div className="mt-2 ml-4 space-y-3">
+                  {SIMPLE_MODULE_KEYS.filter((k) => k !== 'GESTION_USUARIOS').map((key) => (
                     <label key={key} className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={roleModules.supervisor.modules.includes(key)} onChange={(e) => setRoleModules((prev) => ({ ...prev, supervisor: { ...prev.supervisor, modules: e.target.checked ? [...prev.supervisor.modules, key] : prev.supervisor.modules.filter((m) => m !== key) } }))} />
-                      {label}
+                      <input
+                        type="checkbox"
+                        checked={roleModules.supervisor.modules.includes(key)}
+                        onChange={(e) =>
+                          setRoleModules((prev) => ({
+                            ...prev,
+                            supervisor: {
+                              ...prev.supervisor,
+                              modules: e.target.checked
+                                ? [...prev.supervisor.modules, key]
+                                : prev.supervisor.modules.filter((m) => m !== key),
+                            },
+                          }))
+                        }
+                      />
+                      {MODULE_LABELS[key] ?? key}
                     </label>
+                  ))}
+                  {Object.entries(MODULE_SECTIONS).map(([moduleKey, { label: moduleLabel, sections }]) => (
+                    <div key={moduleKey} className="pl-0">
+                      <p className="text-sm font-medium text-[var(--foreground)] mb-1.5">
+                        {moduleLabel}
+                      </p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 ml-2">
+                        {sections.map(({ id, label: sectionLabel }) => {
+                          const sk = sectionKey(moduleKey, id);
+                          return (
+                            <label
+                              key={sk}
+                              className="flex items-center gap-1.5 text-sm text-[var(--muted)]"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={roleModules.supervisor.modules.includes(sk)}
+                                onChange={(e) =>
+                                  setRoleModules((prev) => ({
+                                    ...prev,
+                                    supervisor: {
+                                      ...prev.supervisor,
+                                      modules: e.target.checked
+                                        ? [...prev.supervisor.modules, sk]
+                                        : prev.supervisor.modules.filter((m) => m !== sk),
+                                    },
+                                  }))
+                                }
+                              />
+                              {sectionLabel}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
             </div>
           </div>
-          <button type="button" onClick={async () => { setSavingRoles(true); try { await configApi.updateRoleModules(companyId!, { vendedor: roleModules.vendedor, supervisor: roleModules.supervisor }); showActionModal('Roles guardados', 'Los roles y módulos se han actualizado correctamente.', 'success'); } catch (e) { showActionModal('Error', e instanceof Error ? e.message : 'Error', 'error'); } finally { setSavingRoles(false); } }} disabled={savingRoles} className="mt-3 rounded-lg bg-[var(--secondary)] text-white px-4 py-2 disabled:opacity-50">Guardar roles</button>
+          <button
+            type="button"
+            onClick={handleSaveRoles}
+            disabled={savingRoles}
+            className="mt-3 rounded-lg bg-[var(--secondary)] text-white px-4 py-2 disabled:opacity-50"
+          >
+            Guardar roles
+          </button>
         </section>
       </div>
       <ActionModal open={actionModal.open} onClose={closeActionModal} title={actionModal.title} message={actionModal.message} variant={actionModal.variant} />

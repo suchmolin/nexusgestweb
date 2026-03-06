@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { cierreCajaApi, companiesApi } from '@/lib/api';
+import { cierreCajaApi, companiesApi, configApi } from '@/lib/api';
+import { hasSectionAccess } from '@/lib/role-modules';
 
 function getCompanyId(user: { role: string; companyId: string | null }, selected: string | null): string | null {
   return user?.role === 'SUPER_ADMIN' ? selected : user?.companyId ?? null;
@@ -96,6 +97,36 @@ export default function CierresCajaPage() {
   const [closedList, setClosedList] = useState<{ items: unknown[]; total: number; page: number; limit: number }>({ items: [], total: 0, page: 1, limit: 25 });
   const [reportModal, setReportModal] = useState<ReportData | null>(null);
   const [tab, setTab] = useState<'registro' | 'resumen' | 'consultar'>('registro');
+  const [allowedModules, setAllowedModules] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!companyId || !user || user.role === 'SUPER_ADMIN') {
+      setAllowedModules(null);
+      return;
+    }
+    configApi.getRoleModules(companyId).then((res) => {
+      const list =
+        user.role === 'ADMIN' ? (res.admin?.modules ?? []) :
+        user.role === 'VENDEDOR' ? (res.vendedor?.modules ?? []) :
+        user.role === 'SUPERVISOR' ? (res.supervisor?.modules ?? []) : [];
+      setAllowedModules(list);
+    }).catch(() => setAllowedModules([]));
+  }, [companyId, user?.role, user?.companyId]);
+
+  const cierreCajaTabs = [
+    { id: 'registro' as const, label: 'Registro de cierre de caja' },
+    { id: 'resumen' as const, label: 'Resumen y cierre' },
+    { id: 'consultar' as const, label: 'Consultar cierres realizados' },
+  ];
+  const allowedTabs = allowedModules === null
+    ? cierreCajaTabs
+    : cierreCajaTabs.filter((t) => hasSectionAccess('CIERRE_CAJA', t.id, allowedModules));
+
+  useEffect(() => {
+    if (allowedTabs.length > 0 && !allowedTabs.some((t) => t.id === tab)) {
+      setTab(allowedTabs[0].id);
+    }
+  }, [allowedTabs, tab]);
 
   const [registerConfirmModal, setRegisterConfirmModal] = useState<{
     efectivoBs: number;
@@ -295,31 +326,16 @@ export default function CierresCajaPage() {
         {companyId && (
           <>
             <div className="flex gap-2 border-b border-[var(--border)] flex-wrap">
-            <button
-              type="button"
-              onClick={() => setTab('registro')}
-              className={`px-4 py-2 font-medium rounded-t-lg ${tab === 'registro' ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
-            >
-              Registro de cierre de caja
-            </button>
-            {isAdmin && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setTab('resumen')}
-                  className={`px-4 py-2 font-medium rounded-t-lg ${tab === 'resumen' ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
-                >
-                  Resumen y cierre
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTab('consultar')}
-                  className={`px-4 py-2 font-medium rounded-t-lg ${tab === 'consultar' ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
-                >
-                  Consultar cierres realizados
-                </button>
-              </>
-            )}
+            {allowedTabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`px-4 py-2 font-medium rounded-t-lg ${tab === t.id ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
 
           <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-6 mt-2">
