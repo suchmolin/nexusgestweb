@@ -751,7 +751,7 @@ export default function PresupuestosPage() {
       await budgetsApi.update(editModal.id, companyId, {
         title: (isFieldVisible('title') ? title.trim() : editModal.budget?.title) || 'Presupuesto',
         clientId,
-        date: fullBudget?.date ?? date,
+        date,
         ivaPercent,
         rateOfDay: effectiveRate ?? editModal.budget?.rateOfDay ?? 1,
         currencies,
