@@ -144,6 +144,7 @@ export default function FacturacionPage() {
   const productSearchModalDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const productSearchModalInputRef = useRef<HTMLInputElement>(null);
   const [ivaPercent, setIvaPercent] = useState(12);
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [rateOfDay, setRateOfDay] = useState('');
   const [currencies, setCurrencies] = useState<string[]>(() => getInitialCurrenciesFromStorage(CURRENCIES_STORAGE_KEY));
   const [observations, setObservations] = useState('');
@@ -561,7 +562,7 @@ export default function FacturacionPage() {
       const created = await invoicesApi.create(companyId, {
         title: (invVisible('title') ? title.trim() : '') || 'Factura',
         clientId,
-        date: new Date().toISOString().slice(0, 10),
+        date,
         ivaPercent,
         rateOfDay: effectiveRate ?? 1,
         currencies,
@@ -603,7 +604,7 @@ export default function FacturacionPage() {
       const payload: Record<string, unknown> = {
         title: (invVisible('title') ? title.trim() : '') || 'Factura',
         clientId: selectedClientId,
-        date: new Date().toISOString().slice(0, 10),
+        date,
         ivaPercent,
         rateOfDay: effectiveRate,
         currencies,
@@ -872,7 +873,16 @@ export default function FacturacionPage() {
                   <p><span className="text-[var(--muted)]">RIF:</span> {company?.rif ?? '—'}</p>
                   <p className="md:col-span-2"><span className="text-[var(--muted)]">Dirección:</span> {company?.address ?? '—'}</p>
                 </div>
-                <p className="text-[var(--muted)] mt-2 text-xs">Fecha: {new Date().toISOString().slice(0, 10)} — Correlativo de factura (generado automáticamente)</p>
+                <div className="mt-2 text-xs text-[var(--muted)] flex flex-wrap gap-2 items-center">
+                  <span>Fecha de la factura:</span>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-2 py-1 text-xs"
+                  />
+                  <span className="whitespace-nowrap">— Correlativo de factura (generado automáticamente)</span>
+                </div>
               </section>
               {(config?.invoiceFieldsConfig ?? {})['title']?.visible !== false && (
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">

@@ -97,6 +97,7 @@ export default function PresupuestosPage() {
   const productSearchModalDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const productSearchModalInputRef = useRef<HTMLInputElement>(null);
   const [ivaPercent, setIvaPercent] = useState(12);
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [rateOfDay, setRateOfDay] = useState('');
   const [currencies, setCurrencies] = useState<string[]>(() => getInitialCurrenciesFromStorage(CURRENCIES_STORAGE_KEY));
   const [observations, setObservations] = useState('');
@@ -534,7 +535,7 @@ export default function PresupuestosPage() {
       await budgetsApi.create(companyId, {
         title: (isFieldVisible('title') ? title.trim() : '') || 'Presupuesto',
         clientId,
-        date: new Date().toISOString().slice(0, 10),
+        date,
         ivaPercent,
         rateOfDay: effectiveRate ?? 1,
         currencies,
@@ -552,6 +553,7 @@ export default function PresupuestosPage() {
       setClientSearchResult(null);
       setSelectedClientId(null);
       setItems([]);
+      setDate(new Date().toISOString().slice(0, 10));
       setRateOfDay('');
       setObservations('');
       setPaymentMethods([]);
@@ -612,8 +614,6 @@ export default function PresupuestosPage() {
     }
   };
 
-  const today = new Date().toISOString().slice(0, 10);
-
   const handleDuplicate = async (id: string) => {
     if (!companyId) return;
     try {
@@ -657,6 +657,7 @@ export default function PresupuestosPage() {
           exentoIva: !!it.exentoIva,
         })),
       );
+      setDate(fullBudget.date ?? new Date().toISOString().slice(0, 10));
       setIvaPercent(Number(fullBudget.ivaPercent) ?? 12);
       setRateOfDay(
         fullBudget.rateOfDay != null && !Number.isNaN(Number(fullBudget.rateOfDay))
@@ -750,6 +751,7 @@ export default function PresupuestosPage() {
       await budgetsApi.update(editModal.id, companyId, {
         title: (isFieldVisible('title') ? title.trim() : editModal.budget?.title) || 'Presupuesto',
         clientId,
+        date: fullBudget?.date ?? date,
         ivaPercent,
         rateOfDay: effectiveRate ?? editModal.budget?.rateOfDay ?? 1,
         currencies,
@@ -823,7 +825,15 @@ export default function PresupuestosPage() {
                   <p><span className="text-[var(--muted)]">RIF:</span> {company?.rif ?? '—'}</p>
                   <p className="md:col-span-2"><span className="text-[var(--muted)]">Dirección:</span> {company?.address ?? '—'}</p>
                 </div>
-                <p className="text-[var(--muted)] mt-2 text-xs">Fecha del día: {today}</p>
+                <div className="mt-2 text-xs text-[var(--muted)] flex items-center gap-2">
+                  <span>Fecha del presupuesto:</span>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="rounded-lg bg-[var(--background)] border border-[var(--border)] px-2 py-1 text-xs"
+                  />
+                </div>
               </section>
 
               {isFieldVisible('title') && (
