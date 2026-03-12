@@ -440,9 +440,12 @@ export default function PresupuestosPage() {
   const eurRateNum = config?.eurRate;
   const onlyUsdSelected = currencies.length === 1 && currencies[0] === 'USD';
   const onlyEurSelected = currencies.length === 1 && currencies[0] === 'EUR';
-  const displayCurrency: 'BS' | 'USD' | 'EUR' = onlyUsdSelected && usdRateNum ? 'USD' : onlyEurSelected && eurRateNum ? 'EUR' : (getDefaultCurrencyFromConfig(config) ?? 'BS');
+  const displayCurrency: 'BS' | 'USD' | 'EUR' = onlyUsdSelected && usdRateNum ? 'USD' : onlyEurSelected && eurRateNum ? 'EUR' : (getDefaultCurrencyFromConfig(config) ?? 'USD');
   const displayRate = displayCurrency === 'USD' ? (usdRateNum || 1) : displayCurrency === 'EUR' ? (eurRateNum || 1) : 1;
   const displaySymbol = displayCurrency === 'BS' ? 'Bs.' : displayCurrency === 'USD' ? '$' : '€';
+
+  // Moneda en que están guardados los precios (unitPrice) = moneda de la empresa. La tasa solo se usa para mostrar Bs. Por defecto USD para no dividir cuando la config aún no ha cargado.
+  const baseCurrencyFromConfig = getDefaultCurrencyFromConfig(config) ?? 'USD';
 
   // Cuando el usuario selecciona USD/EUR y existe tasa en Configuración,
   // sobrescribimos cualquier valor previo del campo con la tasa configurada.
@@ -491,20 +494,13 @@ export default function PresupuestosPage() {
       return;
     }
     if (isFieldVisible('rateOfDay')) {
-      const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
-      const hasForeign = !!foreign;
+      const companyBase = getDefaultCurrencyFromConfig(config) ?? 'USD';
+      const budgetHasOtherThanBase = currencies.some((c) => c !== companyBase);
       const hasRate = !!rateOfDay.trim() && !isNaN(Number(rateOfDay));
-      const hasConfigRate =
-        foreign === 'USD' ? config?.usdRate != null :
-        foreign === 'EUR' ? config?.eurRate != null :
-        false;
+      const hasConfigRate = config?.usdRate != null || config?.eurRate != null;
 
-      if (hasRate && !hasForeign) {
-        setError('Debes seleccionar USD o EUR cuando defines una tasa del día.');
-        return;
-      }
-      if (hasForeign && !(hasRate || hasConfigRate)) {
-        setError('Tasa del día es obligatoria cuando se selecciona USD o EUR.');
+      if (budgetHasOtherThanBase && !hasRate && !hasConfigRate) {
+        setError('Tasa del día es obligatoria cuando se selecciona una moneda distinta a la de la configuración de la empresa.');
         return;
       }
     }
@@ -714,20 +710,13 @@ export default function PresupuestosPage() {
       return;
     }
     if (isFieldVisible('rateOfDay')) {
-      const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
-      const hasForeign = !!foreign;
+      const companyBase = getDefaultCurrencyFromConfig(config) ?? 'USD';
+      const budgetHasOtherThanBase = currencies.some((c) => c !== companyBase);
       const hasRate = !!rateOfDay.trim() && !isNaN(Number(rateOfDay));
-      const hasConfigRate =
-        foreign === 'USD' ? config?.usdRate != null :
-        foreign === 'EUR' ? config?.eurRate != null :
-        false;
+      const hasConfigRate = config?.usdRate != null || config?.eurRate != null;
 
-      if (hasRate && !hasForeign) {
-        setError('Debes seleccionar USD o EUR cuando defines una tasa del día.');
-        return;
-      }
-      if (hasForeign && !(hasRate || hasConfigRate)) {
-        setError('Tasa del día es obligatoria cuando se selecciona USD o EUR.');
+      if (budgetHasOtherThanBase && !hasRate && !hasConfigRate) {
+        setError('Tasa del día es obligatoria cuando se selecciona una moneda distinta a la de la configuración de la empresa.');
         return;
       }
     }
@@ -910,8 +899,8 @@ export default function PresupuestosPage() {
                         <th className="p-2">Nombre</th>
                         <th className="p-2">Cant.</th>
                         <th className="p-2">P. unit. ({displaySymbol})</th>
-                        {currencies.includes('USD') && usdRateNum != null && <th className="p-2">P. unit. (USD)</th>}
-                        {currencies.includes('EUR') && eurRateNum != null && <th className="p-2">P. unit. (EUR)</th>}
+                        {currencies.includes('USD') && usdRateNum != null && <th className="p-2">P. unit. ({baseCurrencyFromConfig === 'USD' ? 'Bs.' : 'USD'})</th>}
+                        {currencies.includes('EUR') && eurRateNum != null && <th className="p-2">P. unit. ({baseCurrencyFromConfig === 'EUR' ? 'Bs.' : 'EUR'})</th>}
                         <th className="p-2">Total ({displaySymbol})</th>
                         <th className="p-2">IVA ({displaySymbol})</th>
                         <th className="p-2"></th>
@@ -919,13 +908,16 @@ export default function PresupuestosPage() {
                     </thead>
                     <tbody>
                       {items.map((it, idx) => {
-                        const lineTotalBs = (it.quantity ?? 0) * (it.unitPrice ?? 0);
-                        const lineIvaBs = it.exentoIva ? 0 : (lineTotalBs * ivaPercent) / 100;
-                        const unitDisplay = displayCurrency === 'BS' ? (it.unitPrice ?? 0) : (it.unitPrice ?? 0) / displayRate;
-                        const lineTotalDisplay = displayCurrency === 'BS' ? lineTotalBs : lineTotalBs / displayRate;
-                        const lineIvaDisplay = displayCurrency === 'BS' ? lineIvaBs : lineIvaBs / displayRate;
-                        const unitUsd = usdRateNum ? (it.unitPrice ?? 0) / usdRateNum : 0;
-                        const unitEur = eurRateNum ? (it.unitPrice ?? 0) / eurRateNum : 0;
+                        const lineTotalBase = (it.quantity ?? 0) * (it.unitPrice ?? 0);
+                        const lineIvaBase = it.exentoIva ? 0 : (lineTotalBase * ivaPercent) / 100;
+                        // Precios en base (empresa). Si mostramos en base: sin conversión. Si mostramos en Bs y base es USD: × tasa.
+                        const unitDisplay = baseCurrencyFromConfig === displayCurrency ? (it.unitPrice ?? 0) : displayCurrency === 'BS' ? (it.unitPrice ?? 0) * displayRate : (it.unitPrice ?? 0) / displayRate;
+                        const lineTotalDisplay = baseCurrencyFromConfig === displayCurrency ? lineTotalBase : displayCurrency === 'BS' ? lineTotalBase * displayRate : lineTotalBase / displayRate;
+                        const lineIvaDisplay = baseCurrencyFromConfig === displayCurrency ? lineIvaBase : displayCurrency === 'BS' ? lineIvaBase * displayRate : lineIvaBase / displayRate;
+                        const unitUsd = baseCurrencyFromConfig === 'USD' ? (it.unitPrice ?? 0) : usdRateNum ? (it.unitPrice ?? 0) / usdRateNum : 0;
+                        const unitEur = baseCurrencyFromConfig === 'EUR' ? (it.unitPrice ?? 0) : eurRateNum ? (it.unitPrice ?? 0) / eurRateNum : 0;
+                        const unitBsFromUsd = usdRateNum ? (it.unitPrice ?? 0) * usdRateNum : 0;
+                        const unitBsFromEur = eurRateNum ? (it.unitPrice ?? 0) * eurRateNum : 0;
                         return (
                         <tr key={it.productId} className="border-t border-[var(--border)]">
                           <td className="p-2">{it.code}</td>
@@ -940,8 +932,8 @@ export default function PresupuestosPage() {
                             />
                           </td>
                           <td className="p-2 text-right tabular-nums">{unitDisplay.toFixed(2)}</td>
-                          {currencies.includes('USD') && usdRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{unitUsd.toFixed(2)}</td>}
-                          {currencies.includes('EUR') && eurRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{unitEur.toFixed(2)}</td>}
+                          {currencies.includes('USD') && usdRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{(baseCurrencyFromConfig === 'USD' ? unitBsFromUsd : unitUsd).toFixed(2)}</td>}
+                          {currencies.includes('EUR') && eurRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{(baseCurrencyFromConfig === 'EUR' ? unitBsFromEur : unitEur).toFixed(2)}</td>}
                           <td className="p-2 text-right tabular-nums">{lineTotalDisplay.toFixed(2)}</td>
                           <td className="p-2 text-right tabular-nums text-[var(--muted)]">{it.exentoIva ? '—' : lineIvaDisplay.toFixed(2)}</td>
                           <td className="p-2">
@@ -957,7 +949,7 @@ export default function PresupuestosPage() {
                 {items.length > 0 && (
                   <div className="mt-3 p-3 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm space-y-1">
                     {(() => {
-                      const defaultCurrency = getDefaultCurrencyFromConfig(config) ?? 'BS';
+                      const defaultCurrency = getDefaultCurrencyFromConfig(config) ?? 'USD';
                       const usdRate = rateOfDay && !isNaN(Number(rateOfDay)) ? Number(rateOfDay) : config?.usdRate;
                       const eurRate = config?.eurRate;
                       const onlyUsd = currencies.length === 1 && currencies[0] === 'USD';
@@ -966,18 +958,20 @@ export default function PresupuestosPage() {
                       const displayInEur = onlyEur && eurRate;
                       const baseCurrency: 'USD' | 'EUR' | 'BS' = displayInUsd ? 'USD' : displayInEur ? 'EUR' : defaultCurrency;
                       const baseLabel = baseCurrency === 'BS' ? 'Bs.' : baseCurrency === 'USD' ? '$' : '€';
-                      const displayRate = displayInUsd ? usdRate : displayInEur ? eurRate : 1;
+                      const displayRateSummary = displayInUsd ? usdRate : displayInEur ? eurRate : 1;
 
                       const cantidadProductos = items.reduce((s, i) => s + (i.quantity ?? 0), 0);
-                      const subtotalSinIvaBs = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
-                      const subtotalConIvaBs = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
-                      const ivaMontoBs = (subtotalConIvaBs * ivaPercent) / 100;
-                      const totalBs = subtotalSinIvaBs + subtotalConIvaBs + ivaMontoBs;
-                      const toDisplay = (x: number) => (baseCurrency === 'BS' ? x : x / (displayRate || 1));
-                      const subtotalSinIva = toDisplay(subtotalSinIvaBs);
-                      const subtotalConIva = toDisplay(subtotalConIvaBs);
-                      const ivaMonto = toDisplay(ivaMontoBs);
-                      const total = toDisplay(totalBs);
+                      const subtotalSinIvaBase = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                      const subtotalConIvaBase = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                      const ivaMontoBase = (subtotalConIvaBase * ivaPercent) / 100;
+                      const totalBase = subtotalSinIvaBase + subtotalConIvaBase + ivaMontoBase;
+                      // Montos guardados en baseCurrencyFromConfig. Si mostramos en esa moneda: sin conversión. Si mostramos en Bs y base es USD: × tasa.
+                      const toDisplay = (x: number) =>
+                        baseCurrency === baseCurrencyFromConfig ? x : baseCurrency === 'BS' ? x * (displayRateSummary || 1) : x / (displayRateSummary || 1);
+                      const subtotalSinIva = toDisplay(subtotalSinIvaBase);
+                      const subtotalConIva = toDisplay(subtotalConIvaBase);
+                      const ivaMonto = toDisplay(ivaMontoBase);
+                      const total = toDisplay(totalBase);
                       return (
                         <>
                           <p className="text-[var(--muted)]">Cantidad de productos: <strong className="text-[var(--foreground)]">{cantidadProductos}</strong></p>
@@ -987,13 +981,13 @@ export default function PresupuestosPage() {
                           <p className="text-[var(--foreground)] font-medium">Total: <strong>{total.toFixed(2)}</strong> {baseLabel}</p>
                           <p className="text-[var(--muted)] mt-2 font-medium">Total por moneda:</p>
                           {currencies.includes('BS') && (
-                            <p className="text-[var(--foreground)]">Total en Bs.: <strong>{totalBs.toFixed(2)}</strong></p>
+                            <p className="text-[var(--foreground)]">Total en Bs.: <strong>{(baseCurrencyFromConfig === 'USD' ? totalBase * (usdRate || 1) : baseCurrencyFromConfig === 'EUR' ? totalBase * (eurRate || 1) : totalBase).toFixed(2)}</strong></p>
                           )}
                           {currencies.includes('USD') && usdRate != null && (
-                            <p className="text-[var(--foreground)]">Total en USD: <strong>{(totalBs / (usdRate || 1)).toFixed(2)}</strong> (tasa {usdRate})</p>
+                            <p className="text-[var(--foreground)]">Total en USD: <strong>{(baseCurrencyFromConfig === 'USD' ? totalBase : totalBase / (usdRate || 1)).toFixed(2)}</strong> (tasa {usdRate})</p>
                           )}
                           {currencies.includes('EUR') && eurRate != null && (
-                            <p className="text-[var(--foreground)]">Total en EUR: <strong>{(totalBs / (eurRate || 1)).toFixed(2)}</strong> (tasa {eurRate})</p>
+                            <p className="text-[var(--foreground)]">Total en EUR: <strong>{(baseCurrencyFromConfig === 'EUR' ? totalBase : totalBase / (eurRate || 1)).toFixed(2)}</strong> (tasa {eurRate})</p>
                           )}
                         </>
                       );
@@ -1273,8 +1267,8 @@ export default function PresupuestosPage() {
                             <th className="p-2">Nombre</th>
                             <th className="p-2">Cant.</th>
                             <th className="p-2">P. unit. ({displaySymbol})</th>
-                            {currencies.includes('USD') && usdRateNum != null && <th className="p-2">P. unit. (USD)</th>}
-                            {currencies.includes('EUR') && eurRateNum != null && <th className="p-2">P. unit. (EUR)</th>}
+                            {currencies.includes('USD') && usdRateNum != null && <th className="p-2">P. unit. ({baseCurrencyFromConfig === 'USD' ? 'Bs.' : 'USD'})</th>}
+                            {currencies.includes('EUR') && eurRateNum != null && <th className="p-2">P. unit. ({baseCurrencyFromConfig === 'EUR' ? 'Bs.' : 'EUR'})</th>}
                             <th className="p-2">Total ({displaySymbol})</th>
                             <th className="p-2">IVA ({displaySymbol})</th>
                             <th className="p-2"></th>
@@ -1282,13 +1276,15 @@ export default function PresupuestosPage() {
                         </thead>
                         <tbody>
                           {items.map((it, idx) => {
-                            const lineTotalBs = (it.quantity ?? 0) * (it.unitPrice ?? 0);
-                            const lineIvaBs = it.exentoIva ? 0 : (lineTotalBs * ivaPercent) / 100;
-                            const unitDisplay = displayCurrency === 'BS' ? (it.unitPrice ?? 0) : (it.unitPrice ?? 0) / displayRate;
-                            const lineTotalDisplay = displayCurrency === 'BS' ? lineTotalBs : lineTotalBs / displayRate;
-                            const lineIvaDisplay = displayCurrency === 'BS' ? lineIvaBs : lineIvaBs / displayRate;
-                            const unitUsd = usdRateNum ? (it.unitPrice ?? 0) / usdRateNum : 0;
-                            const unitEur = eurRateNum ? (it.unitPrice ?? 0) / eurRateNum : 0;
+                            const lineTotalBase = (it.quantity ?? 0) * (it.unitPrice ?? 0);
+                            const lineIvaBase = it.exentoIva ? 0 : (lineTotalBase * ivaPercent) / 100;
+                            const unitDisplay = baseCurrencyFromConfig === displayCurrency ? (it.unitPrice ?? 0) : displayCurrency === 'BS' ? (it.unitPrice ?? 0) * displayRate : (it.unitPrice ?? 0) / displayRate;
+                            const lineTotalDisplay = baseCurrencyFromConfig === displayCurrency ? lineTotalBase : displayCurrency === 'BS' ? lineTotalBase * displayRate : lineTotalBase / displayRate;
+                            const lineIvaDisplay = baseCurrencyFromConfig === displayCurrency ? lineIvaBase : displayCurrency === 'BS' ? lineIvaBase * displayRate : lineIvaBase / displayRate;
+                            const unitUsd = baseCurrencyFromConfig === 'USD' ? (it.unitPrice ?? 0) : usdRateNum ? (it.unitPrice ?? 0) / usdRateNum : 0;
+                            const unitEur = baseCurrencyFromConfig === 'EUR' ? (it.unitPrice ?? 0) : eurRateNum ? (it.unitPrice ?? 0) / eurRateNum : 0;
+                            const unitBsFromUsd = usdRateNum ? (it.unitPrice ?? 0) * usdRateNum : 0;
+                            const unitBsFromEur = eurRateNum ? (it.unitPrice ?? 0) * eurRateNum : 0;
                             return (
                               <tr key={it.productId} className="border-t border-[var(--border)]">
                                 <td className="p-2">{it.code}</td>
@@ -1303,8 +1299,8 @@ export default function PresupuestosPage() {
                                   />
                                 </td>
                                 <td className="p-2 text-right tabular-nums">{unitDisplay.toFixed(2)}</td>
-                                {currencies.includes('USD') && usdRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{unitUsd.toFixed(2)}</td>}
-                                {currencies.includes('EUR') && eurRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{unitEur.toFixed(2)}</td>}
+                                {currencies.includes('USD') && usdRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{(baseCurrencyFromConfig === 'USD' ? unitBsFromUsd : unitUsd).toFixed(2)}</td>}
+                                {currencies.includes('EUR') && eurRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{(baseCurrencyFromConfig === 'EUR' ? unitBsFromEur : unitEur).toFixed(2)}</td>}
                                 <td className="p-2 text-right tabular-nums">{lineTotalDisplay.toFixed(2)}</td>
                                 <td className="p-2 text-right tabular-nums text-[var(--muted)]">{it.exentoIva ? '—' : lineIvaDisplay.toFixed(2)}</td>
                                 <td className="p-2">
@@ -1323,7 +1319,7 @@ export default function PresupuestosPage() {
                   {items.length > 0 && (
                     <section className="p-4 rounded-lg bg-[var(--background)] border border-[var(--border)] text-sm space-y-1">
                       {(() => {
-                        const defaultCurrency = getDefaultCurrencyFromConfig(config) ?? 'BS';
+                        const defaultCurrency = getDefaultCurrencyFromConfig(config) ?? 'USD';
                         const usdRate = rateOfDay && !isNaN(Number(rateOfDay)) ? Number(rateOfDay) : config?.usdRate;
                         const eurRate = config?.eurRate;
                         const onlyUsd = currencies.length === 1 && currencies[0] === 'USD';
@@ -1335,15 +1331,16 @@ export default function PresupuestosPage() {
                         const displayRateSummary = displayInUsd ? usdRate : displayInEur ? eurRate : 1;
 
                         const cantidadProductos = items.reduce((s, i) => s + (i.quantity ?? 0), 0);
-                        const subtotalSinIvaBs = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
-                        const subtotalConIvaBs = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
-                        const ivaMontoBs = (subtotalConIvaBs * ivaPercent) / 100;
-                        const totalBs = subtotalSinIvaBs + subtotalConIvaBs + ivaMontoBs;
-                        const toDisplay = (x: number) => (baseCurrency === 'BS' ? x : x / (displayRateSummary || 1));
-                        const subtotalSinIva = toDisplay(subtotalSinIvaBs);
-                        const subtotalConIva = toDisplay(subtotalConIvaBs);
-                        const ivaMonto = toDisplay(ivaMontoBs);
-                        const total = toDisplay(totalBs);
+                        const subtotalSinIvaBase = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                        const subtotalConIvaBase = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                        const ivaMontoBase = (subtotalConIvaBase * ivaPercent) / 100;
+                        const totalBase = subtotalSinIvaBase + subtotalConIvaBase + ivaMontoBase;
+                        const toDisplay = (x: number) =>
+                          baseCurrency === baseCurrencyFromConfig ? x : baseCurrency === 'BS' ? x * (displayRateSummary || 1) : x / (displayRateSummary || 1);
+                        const subtotalSinIva = toDisplay(subtotalSinIvaBase);
+                        const subtotalConIva = toDisplay(subtotalConIvaBase);
+                        const ivaMonto = toDisplay(ivaMontoBase);
+                        const total = toDisplay(totalBase);
                         return (
                           <>
                             <p className="text-[var(--muted)]">Cantidad de productos: <strong className="text-[var(--foreground)]">{cantidadProductos}</strong></p>
