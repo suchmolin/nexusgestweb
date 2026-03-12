@@ -486,20 +486,13 @@ export default function FacturacionPage() {
     const invRequired = (key: string) => invFieldConfig[key]?.required === true;
     if (invVisible('title') && !title.trim()) { setErrorInvoice('Título es obligatorio.'); return; }
     if (invVisible('rateOfDay')) {
-      const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
-      const hasForeign = !!foreign;
+      const companyBase = getDefaultCurrencyFromConfig(config) ?? 'USD';
+      const invoiceHasOtherThanBase = currencies.some((c) => c !== companyBase);
       const hasRate = !!rateOfDay.trim() && !isNaN(Number(rateOfDay));
-      const hasConfigRate =
-        foreign === 'USD' ? config?.usdRate != null :
-        foreign === 'EUR' ? config?.eurRate != null :
-        false;
+      const hasConfigRate = config?.usdRate != null || config?.eurRate != null;
 
-      if (hasRate && !hasForeign) {
-        setErrorInvoice('Debes seleccionar USD o EUR cuando defines una tasa del día.');
-        return;
-      }
-      if (hasForeign && !(hasRate || hasConfigRate)) {
-        setErrorInvoice('Tasa del día es obligatoria cuando se selecciona USD o EUR.');
+      if (invoiceHasOtherThanBase && !hasRate && !hasConfigRate) {
+        setErrorInvoice('Tasa del día es obligatoria cuando se selecciona una moneda distinta a la de la configuración de la empresa.');
         return;
       }
     }
