@@ -440,9 +440,12 @@ export default function FacturacionPage() {
   const eurRateNum = config?.eurRate;
   const onlyUsdSelected = currencies.length === 1 && currencies[0] === 'USD';
   const onlyEurSelected = currencies.length === 1 && currencies[0] === 'EUR';
-  const displayCurrency: 'BS' | 'USD' | 'EUR' = onlyUsdSelected && usdRateNum ? 'USD' : onlyEurSelected && eurRateNum ? 'EUR' : (getDefaultCurrencyFromConfig(config) ?? 'BS');
+  const displayCurrency: 'BS' | 'USD' | 'EUR' = onlyUsdSelected && usdRateNum ? 'USD' : onlyEurSelected && eurRateNum ? 'EUR' : (getDefaultCurrencyFromConfig(config) ?? 'USD');
   const displayRate = displayCurrency === 'USD' ? (usdRateNum || 1) : displayCurrency === 'EUR' ? (eurRateNum || 1) : 1;
   const displaySymbol = displayCurrency === 'BS' ? 'Bs.' : displayCurrency === 'USD' ? '$' : '€';
+
+  // Moneda de la empresa; por defecto USD para que la tasa solo se use para mostrar Bs.
+  const baseCurrencyFromConfig = getDefaultCurrencyFromConfig(config) ?? 'USD';
 
   // Cuando el usuario selecciona USD/EUR y existe tasa en Configuración,
   // sobrescribimos cualquier valor previo del campo con la tasa configurada.
@@ -932,23 +935,25 @@ export default function FacturacionPage() {
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead><tr className="text-left text-[var(--muted)]"><th className="p-2">COD</th><th className="p-2">Nombre</th><th className="p-2">Cant.</th><th className="p-2">P. unit. ({displaySymbol})</th>{currencies.includes('USD') && usdRateNum != null && <th className="p-2">P. unit. (USD)</th>}{currencies.includes('EUR') && eurRateNum != null && <th className="p-2">P. unit. (EUR)</th>}<th className="p-2">Total ({displaySymbol})</th><th className="p-2">IVA ({displaySymbol})</th><th className="p-2"></th></tr></thead>
+                    <thead><tr className="text-left text-[var(--muted)]"><th className="p-2">COD</th><th className="p-2">Nombre</th><th className="p-2">Cant.</th><th className="p-2">P. unit. ({displaySymbol})</th>{currencies.includes('USD') && usdRateNum != null && <th className="p-2">P. unit. ({baseCurrencyFromConfig === 'USD' ? 'Bs.' : 'USD'})</th>}{currencies.includes('EUR') && eurRateNum != null && <th className="p-2">P. unit. ({baseCurrencyFromConfig === 'EUR' ? 'Bs.' : 'EUR'})</th>}<th className="p-2">Total ({displaySymbol})</th><th className="p-2">IVA ({displaySymbol})</th><th className="p-2"></th></tr></thead>
                     <tbody>
                       {items.map((it, idx) => {
-                        const lineTotalBs = (it.quantity ?? 0) * (it.unitPrice ?? 0);
-                        const lineIvaBs = it.exentoIva ? 0 : (lineTotalBs * ivaPercent) / 100;
-                        const unitDisplay = displayCurrency === 'BS' ? (it.unitPrice ?? 0) : (it.unitPrice ?? 0) / displayRate;
-                        const lineTotalDisplay = displayCurrency === 'BS' ? lineTotalBs : lineTotalBs / displayRate;
-                        const lineIvaDisplay = displayCurrency === 'BS' ? lineIvaBs : lineIvaBs / displayRate;
-                        const unitUsd = usdRateNum ? (it.unitPrice ?? 0) / usdRateNum : 0;
-                        const unitEur = eurRateNum ? (it.unitPrice ?? 0) / eurRateNum : 0;
+                        const lineTotalBase = (it.quantity ?? 0) * (it.unitPrice ?? 0);
+                        const lineIvaBase = it.exentoIva ? 0 : (lineTotalBase * ivaPercent) / 100;
+                        const unitDisplay = baseCurrencyFromConfig === displayCurrency ? (it.unitPrice ?? 0) : displayCurrency === 'BS' ? (it.unitPrice ?? 0) * displayRate : (it.unitPrice ?? 0) / displayRate;
+                        const lineTotalDisplay = baseCurrencyFromConfig === displayCurrency ? lineTotalBase : displayCurrency === 'BS' ? lineTotalBase * displayRate : lineTotalBase / displayRate;
+                        const lineIvaDisplay = baseCurrencyFromConfig === displayCurrency ? lineIvaBase : displayCurrency === 'BS' ? lineIvaBase * displayRate : lineIvaBase / displayRate;
+                        const unitUsd = baseCurrencyFromConfig === 'USD' ? (it.unitPrice ?? 0) : usdRateNum ? (it.unitPrice ?? 0) / usdRateNum : 0;
+                        const unitEur = baseCurrencyFromConfig === 'EUR' ? (it.unitPrice ?? 0) : eurRateNum ? (it.unitPrice ?? 0) / eurRateNum : 0;
+                        const unitBsFromUsd = usdRateNum ? (it.unitPrice ?? 0) * usdRateNum : 0;
+                        const unitBsFromEur = eurRateNum ? (it.unitPrice ?? 0) * eurRateNum : 0;
                         return (
                         <tr key={it.productId} className="border-t border-[var(--border)]">
                           <td className="p-2">{it.code}</td><td className="p-2">{it.name}</td>
                           <td className="p-2"><input type="number" min={1} value={it.quantity} onChange={(e) => updateItem(it.productId, { quantity: Number(e.target.value) || 1 })} className="w-16 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-1" /></td>
                           <td className="p-2 text-right tabular-nums">{unitDisplay.toFixed(2)}</td>
-                          {currencies.includes('USD') && usdRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{unitUsd.toFixed(2)}</td>}
-                          {currencies.includes('EUR') && eurRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{unitEur.toFixed(2)}</td>}
+                          {currencies.includes('USD') && usdRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{(baseCurrencyFromConfig === 'USD' ? unitBsFromUsd : unitUsd).toFixed(2)}</td>}
+                          {currencies.includes('EUR') && eurRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{(baseCurrencyFromConfig === 'EUR' ? unitBsFromEur : unitEur).toFixed(2)}</td>}
                           <td className="p-2 text-right tabular-nums">{lineTotalDisplay.toFixed(2)}</td>
                           <td className="p-2 text-right tabular-nums text-[var(--muted)]">{it.exentoIva ? '—' : lineIvaDisplay.toFixed(2)}</td>
                           <td className="p-2">
@@ -967,15 +972,16 @@ export default function FacturacionPage() {
                       const baseCurrency = displayCurrency;
                       const baseLabel = displaySymbol;
                       const cantidadProductos = items.reduce((s, i) => s + (i.quantity ?? 0), 0);
-                      const subtotalSinIvaBs = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
-                      const subtotalConIvaBs = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
-                      const ivaMontoBs = (subtotalConIvaBs * ivaPercent) / 100;
-                      const totalBs = subtotalSinIvaBs + subtotalConIvaBs + ivaMontoBs;
-                      const toDisplay = (x: number) => (displayCurrency === 'BS' ? x : x / displayRate);
-                      const subtotalSinIva = toDisplay(subtotalSinIvaBs);
-                      const subtotalConIva = toDisplay(subtotalConIvaBs);
-                      const ivaMonto = toDisplay(ivaMontoBs);
-                      const total = toDisplay(totalBs);
+                      const subtotalSinIvaBase = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                      const subtotalConIvaBase = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+                      const ivaMontoBase = (subtotalConIvaBase * ivaPercent) / 100;
+                      const totalBase = subtotalSinIvaBase + subtotalConIvaBase + ivaMontoBase;
+                      const toDisplay = (x: number) =>
+                        baseCurrency === baseCurrencyFromConfig ? x : baseCurrency === 'BS' ? x * displayRate : x / displayRate;
+                      const subtotalSinIva = toDisplay(subtotalSinIvaBase);
+                      const subtotalConIva = toDisplay(subtotalConIvaBase);
+                      const ivaMonto = toDisplay(ivaMontoBase);
+                      const total = toDisplay(totalBase);
                       const usdRate = usdRateNum;
                       const eurRate = eurRateNum;
                       return (
@@ -987,13 +993,13 @@ export default function FacturacionPage() {
                           <p className="text-[var(--foreground)] font-medium">Total: <strong>{total.toFixed(2)}</strong> {baseLabel}</p>
                           <p className="text-[var(--muted)] mt-2 font-medium">Total por moneda:</p>
                           {currencies.includes('BS') && (
-                            <p className="text-[var(--foreground)]">Total en Bs.: <strong>{totalBs.toFixed(2)}</strong></p>
+                            <p className="text-[var(--foreground)]">Total en Bs.: <strong>{(baseCurrencyFromConfig === 'USD' ? totalBase * (usdRate || 1) : baseCurrencyFromConfig === 'EUR' ? totalBase * (eurRate || 1) : totalBase).toFixed(2)}</strong></p>
                           )}
                           {currencies.includes('USD') && usdRate != null && (
-                            <p className="text-[var(--foreground)]">Total en USD: <strong>{(totalBs / (usdRate || 1)).toFixed(2)}</strong> (tasa {usdRate})</p>
+                            <p className="text-[var(--foreground)]">Total en USD: <strong>{(baseCurrencyFromConfig === 'USD' ? totalBase : totalBase / (usdRate || 1)).toFixed(2)}</strong> (tasa {usdRate})</p>
                           )}
                           {currencies.includes('EUR') && eurRate != null && (
-                            <p className="text-[var(--foreground)]">Total en EUR: <strong>{(totalBs / (eurRate || 1)).toFixed(2)}</strong> (tasa {eurRate})</p>
+                            <p className="text-[var(--foreground)]">Total en EUR: <strong>{(baseCurrencyFromConfig === 'EUR' ? totalBase : totalBase / (eurRate || 1)).toFixed(2)}</strong> (tasa {eurRate})</p>
                           )}
                         </>
                       );
