@@ -12,6 +12,7 @@ const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', '
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
 const PRODUCT_SEARCH_DEBOUNCE_MS = 280;
 const CURRENCIES_STORAGE_KEY = 'nexusgest_facturacion_currencies';
+const INVOICE_DRAFTS_STORAGE_PREFIX = 'nexusgest_invoice_drafts_';
 
 function getInitialCurrenciesFromStorage(key: string): string[] {
   if (typeof window === 'undefined') return ['BS'];
@@ -37,7 +38,62 @@ function getDefaultCurrencyFromConfig(cfg: { currencySymbol?: string } | null): 
   return null;
 }
 
-type InvoiceItemRow = { productId: string; code: string; name: string; quantity: number; unitPrice: number; sortOrder: number; exentoIva: boolean };
+type InvoiceItemRow = { productId: string; code: string; name: string; quantity: number; unitPrice: number; sortOrder: number; exentoIva: boolean; stock?: number };
+
+export type InvoiceDraft = {
+  id: string;
+  createdAt: string;
+  title: string;
+  clientRif: string;
+  clientSearchResult: any;
+  selectedClientId: string | null;
+  clientForm: { name: string; address: string; rifCedula: string; phone: string; email: string };
+  items: InvoiceItemRow[];
+  ivaPercent: number;
+  date: string;
+  rateOfDay: string;
+  currencies: string[];
+  observations: string;
+  priority: 'NORMAL' | 'URGENT';
+  paymentMethods: string[];
+  deliveryTime: string;
+  validity: string;
+};
+
+function getInvoiceDrafts(companyId: string): InvoiceDraft[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const s = localStorage.getItem(INVOICE_DRAFTS_STORAGE_PREFIX + companyId);
+    if (!s) return [];
+    const p = JSON.parse(s) as unknown;
+    if (!Array.isArray(p)) return [];
+    return p.filter((d): d is InvoiceDraft => d && typeof d.id === 'string' && typeof d.createdAt === 'string');
+  } catch {
+    return [];
+  }
+}
+
+function saveInvoiceDraft(companyId: string, draft: Omit<InvoiceDraft, 'id' | 'createdAt'>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const list = getInvoiceDrafts(companyId);
+    const newDraft: InvoiceDraft = {
+      ...draft,
+      id: crypto.randomUUID?.() ?? `draft-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    list.unshift(newDraft);
+    localStorage.setItem(INVOICE_DRAFTS_STORAGE_PREFIX + companyId, JSON.stringify(list));
+  } catch {}
+}
+
+function removeInvoiceDraft(companyId: string, draftId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const list = getInvoiceDrafts(companyId).filter((d) => d.id !== draftId);
+    localStorage.setItem(INVOICE_DRAFTS_STORAGE_PREFIX + companyId, JSON.stringify(list));
+  } catch {}
+}
 
 function getCompanyId(user: { role: string; companyId: string | null }, selected: string | null): string | null {
   return user.role === 'SUPER_ADMIN' ? selected : user.companyId;
@@ -155,6 +211,11 @@ export default function FacturacionPage() {
   const [validity, setValidity] = useState('');
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [errorInvoice, setErrorInvoice] = useState('');
+  const [draftsModalOpen, setDraftsModalOpen] = useState(false);
+  const [draftsList, setDraftsList] = useState<InvoiceDraft[]>([]);
+  const [confirmLoadDraft, setConfirmLoadDraft] = useState<{ draft: InvoiceDraft } | null>(null);
+  const [draftSavedMessage, setDraftSavedMessage] = useState(false);
+  const [loadingDraft, setLoadingDraft] = useState(false);
 
   const [productNotFoundModal, setProductNotFoundModal] = useState<{ open: boolean; code: string }>({ open: false, code: '' });
   const [registerProductModal, setRegisterProductModal] = useState(false);
@@ -289,7 +350,7 @@ export default function FacturacionPage() {
       }
       setItems((prev) => [
         ...prev,
-        { productId: created.id, code: created.code, name: created.name, quantity: 1, unitPrice, sortOrder: prev.length + 1, exentoIva: newProductExentoIva },
+        { productId: created.id, code: created.code, name: created.name, quantity: 1, unitPrice, sortOrder: prev.length + 1, exentoIva: newProductExentoIva, stock: (created as any).stock != null ? Number((created as any).stock) : 0 },
       ]);
       setProductCodeInput('');
       setRegisterProductModal(false);
@@ -322,11 +383,12 @@ export default function FacturacionPage() {
 
   const addProductToItems = useCallback((prod: any) => {
     const unitPrice = Number(prod.salePrice) || 0;
+    const stock = prod.stock != null ? Number(prod.stock) : undefined;
     const existing = items.find((i) => i.productId === prod.id);
     if (existing) {
-      setItems((prev) => prev.map((i) => i.productId === prod.id ? { ...i, quantity: i.quantity + 1 } : i));
+      setItems((prev) => prev.map((i) => i.productId === prod.id ? { ...i, quantity: i.quantity + 1, ...(stock != null && i.stock == null ? { stock } : {}) } : i));
     } else {
-      setItems((prev) => [...prev, { productId: prod.id, code: prod.code, name: prod.name, quantity: 1, unitPrice, sortOrder: prev.length + 1, exentoIva: prod.exentoIva ?? false }]);
+      setItems((prev) => [...prev, { productId: prod.id, code: prod.code, name: prod.name, quantity: 1, unitPrice, sortOrder: prev.length + 1, exentoIva: prod.exentoIva ?? false, stock }]);
     }
   }, [items]);
 
@@ -440,6 +502,104 @@ export default function FacturacionPage() {
     setPaymentMethods((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
   };
 
+  const hasFormData = items.length > 0 || title.trim() !== '' || !!selectedClientId || clientForm.name.trim() !== '' || clientRif.trim() !== '' || observations.trim() !== '' || paymentMethods.length > 0 || deliveryTime.trim() !== '' || validity.trim() !== '';
+
+  const refreshItemsStock = useCallback(async (cid: string, draftItems: InvoiceItemRow[]): Promise<InvoiceItemRow[]> => {
+    if (!draftItems.length) return draftItems;
+    const productIds = [...new Set(draftItems.map((i) => i.productId))];
+    const productPromises = productIds.map((id) => productsApi.get(id, cid).then((p: any) => ({ id, stock: p?.stock != null ? Number(p.stock) : undefined })).catch(() => ({ id, stock: undefined })));
+    const results = await Promise.all(productPromises);
+    const stockByProductId = new Map(results.map((r) => [r.id, r.stock]));
+    return draftItems.map((item) => ({
+      ...item,
+      stock: stockByProductId.get(item.productId) ?? item.stock,
+    }));
+  }, []);
+
+  const loadDraftIntoForm = useCallback(async (draft: InvoiceDraft) => {
+    if (!companyId) return;
+    const draftItems = Array.isArray(draft.items) ? draft.items : [];
+    const itemsWithCurrentStock = await refreshItemsStock(companyId, draftItems);
+    setTitle(draft.title ?? '');
+    setClientRif(draft.clientRif ?? '');
+    const clientFormData = draft.clientForm ?? { name: '', address: '', rifCedula: '', phone: '', email: '' };
+    setClientForm(clientFormData);
+    setSelectedClientId(draft.selectedClientId ?? null);
+    if (draft.clientSearchResult && draft.clientSearchResult !== 'loading' && draft.clientSearchResult !== 'not-found') {
+      setClientSearchResult(draft.clientSearchResult);
+    } else if (!draft.selectedClientId && (clientFormData.name.trim() || draft.clientRif?.trim())) {
+      setClientSearchResult('not-found');
+    } else {
+      setClientSearchResult(null);
+    }
+    setItems(itemsWithCurrentStock);
+    setIvaPercent(draft.ivaPercent ?? 12);
+    setDate(draft.date ?? new Date().toISOString().slice(0, 10));
+    setRateOfDay(draft.rateOfDay ?? '');
+    setCurrencies(Array.isArray(draft.currencies) && draft.currencies.length > 0 ? draft.currencies : ['BS']);
+    setObservations(draft.observations ?? '');
+    setPriority(draft.priority ?? 'NORMAL');
+    setPaymentMethods(Array.isArray(draft.paymentMethods) ? draft.paymentMethods : []);
+    setDeliveryTime(draft.deliveryTime ?? '');
+    setValidity(draft.validity ?? '');
+    setErrorInvoice('');
+  }, [companyId, refreshItemsStock]);
+
+  const handleUseDraft = async (draft: InvoiceDraft) => {
+    if (hasFormData) {
+      setConfirmLoadDraft({ draft });
+    } else {
+      setLoadingDraft(true);
+      try {
+        await loadDraftIntoForm(draft);
+        setDraftsModalOpen(false);
+      } finally {
+        setLoadingDraft(false);
+      }
+    }
+  };
+
+  const handleRemoveDraft = (draftId: string) => {
+    if (!companyId) return;
+    removeInvoiceDraft(companyId, draftId);
+    setDraftsList(getInvoiceDrafts(companyId));
+  };
+
+  const handleConfirmLoadDraft = async () => {
+    if (!confirmLoadDraft?.draft) return;
+    setLoadingDraft(true);
+    try {
+      await loadDraftIntoForm(confirmLoadDraft.draft);
+      setConfirmLoadDraft(null);
+      setDraftsModalOpen(false);
+    } finally {
+      setLoadingDraft(false);
+    }
+  };
+
+  const handleSaveDraft = () => {
+    if (!companyId) return;
+    saveInvoiceDraft(companyId, {
+      title,
+      clientRif,
+      clientSearchResult: clientSearchResult && clientSearchResult !== 'loading' && clientSearchResult !== 'not-found' ? clientSearchResult : null,
+      selectedClientId,
+      clientForm,
+      items,
+      ivaPercent,
+      date,
+      rateOfDay,
+      currencies,
+      observations,
+      priority,
+      paymentMethods,
+      deliveryTime,
+      validity,
+    });
+    setDraftSavedMessage(true);
+    setTimeout(() => setDraftSavedMessage(false), 2500);
+  };
+
   const foreignCurrency = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
   const rateLockedFromConfig =
     foreignCurrency === 'USD' ? config?.usdRate != null :
@@ -491,6 +651,11 @@ export default function FacturacionPage() {
       return;
     }
     if (items.length === 0) { setErrorInvoice('Agrega al menos un producto.'); return; }
+    const noStockItems = items.filter((i) => i.stock != null && (i.quantity ?? 0) > i.stock);
+    if (noStockItems.length > 0) {
+      setErrorInvoice('Los productos resaltados en rojo no tienen stock disponible. Ajusta las cantidades o quítalos de la factura.');
+      return;
+    }
     const invFieldConfig = config?.invoiceFieldsConfig ?? {};
     const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
     const invRequired = (key: string) => invFieldConfig[key]?.required === true;
@@ -590,6 +755,11 @@ export default function FacturacionPage() {
 
   const performCreateInvoice = async () => {
     if (!companyId || !selectedClientId || !paymentBreakdownModal) return;
+    const noStockItems = items.filter((i) => i.stock != null && (i.quantity ?? 0) > i.stock);
+    if (noStockItems.length > 0) {
+      setErrorInvoice('Los productos resaltados en rojo no tienen stock disponible. Ajusta las cantidades o quítalos de la factura.');
+      return;
+    }
     const montoTransfPagoMovil = Number(paymentBreakdownModal.transferenciaPagoMovil) || 0;
     const refTransfPagoMovil = String(paymentBreakdownModal.transferenciaPagoMovilRef ?? '').trim();
     if (montoTransfPagoMovil > 0 && !refTransfPagoMovil) {
@@ -671,6 +841,7 @@ export default function FacturacionPage() {
           unitPrice: Number(it.unitPrice) ?? 0,
           sortOrder: it.sortOrder ?? idx + 1,
           exentoIva: !!it.exentoIva,
+          stock: it.product?.stock != null ? Number(it.product.stock) : undefined,
         }))
       );
       setIvaPercent(Number(fullBudget.ivaPercent) ?? 12);
@@ -881,6 +1052,15 @@ export default function FacturacionPage() {
 
           {tab === 'new' && (
             <div className="mt-6 space-y-6 max-w-4xl">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setDraftsModalOpen(true); if (companyId) setDraftsList(getInvoiceDrafts(companyId)); }}
+                  className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)] hover:bg-[var(--card-hover)]"
+                >
+                  Usar borrador
+                </button>
+              </div>
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Datos de la empresa</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
@@ -965,8 +1145,9 @@ export default function FacturacionPage() {
                         const unitEur = baseCurrencyFromConfig === 'EUR' ? (it.unitPrice ?? 0) : eurRateNum ? (it.unitPrice ?? 0) / eurRateNum : 0;
                         const unitBsFromUsd = usdRateNum ? (it.unitPrice ?? 0) * usdRateNum : 0;
                         const unitBsFromEur = eurRateNum ? (it.unitPrice ?? 0) * eurRateNum : 0;
+                        const sinStock = it.stock != null && (it.quantity ?? 0) > it.stock;
                         return (
-                        <tr key={it.productId} className="border-t border-[var(--border)]">
+                        <tr key={it.productId} className={`border-t border-[var(--border)] ${sinStock ? 'bg-red-500/15 border-l-4 border-l-red-500' : ''}`}>
                           <td className="p-2">{it.code}</td><td className="p-2">{it.name}</td>
                           <td className="p-2"><input type="number" min={1} value={it.quantity} onChange={(e) => updateItem(it.productId, { quantity: Number(e.target.value) || 1 })} className="w-16 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-1" /></td>
                           <td className="p-2 text-right tabular-nums">{unitDisplay.toFixed(2)}</td>
@@ -1081,7 +1262,13 @@ export default function FacturacionPage() {
                 </div>
               </section>
               {errorInvoice && <p className="text-[var(--destructive)]">{errorInvoice}</p>}
-              <button type="button" onClick={handleSubmitInvoice} disabled={savingInvoice || !hasValidClient || items.length === 0} className="rounded-lg bg-[var(--primary)] text-white px-6 py-2 font-medium disabled:opacity-50">{savingInvoice ? 'Guardando...' : 'Guardar factura'}</button>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button type="button" onClick={handleSubmitInvoice} disabled={savingInvoice || !hasValidClient || items.length === 0} className="rounded-lg bg-[var(--primary)] text-white px-6 py-2 font-medium disabled:opacity-50">{savingInvoice ? 'Guardando...' : 'Guardar factura'}</button>
+                <div className="flex items-center gap-2">
+                  {draftSavedMessage && <span className="text-sm text-[var(--primary)]">Borrador guardado</span>}
+                  <button type="button" onClick={handleSaveDraft} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--card-hover)]">Guardar borrador</button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1158,6 +1345,60 @@ export default function FacturacionPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Modal: listado de borradores */}
+      {draftsModalOpen && companyId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="drafts-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+              <h2 id="drafts-modal-title" className="font-semibold text-[var(--foreground)]">Borradores guardados</h2>
+              <button type="button" onClick={() => setDraftsModalOpen(false)} className="p-1 rounded text-[var(--muted)] hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]" aria-label="Cerrar">
+                <IconX className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1">
+              {loadingDraft ? (
+                <p className="text-sm text-[var(--muted)]">Cargando borrador y actualizando stock…</p>
+              ) : draftsList.length === 0 ? (
+                <p className="text-sm text-[var(--muted)]">No hay borradores guardados.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {draftsList.map((d) => (
+                    <li key={d.id} className="flex items-center justify-between gap-2 p-3 rounded-lg bg-[var(--background)] border border-[var(--border)]">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-[var(--foreground)] truncate">{d.title || 'Sin título'}</p>
+                        <p className="text-xs text-[var(--muted)]">
+                          {new Date(d.createdAt).toLocaleString()} — {d.items?.length ?? 0} producto(s) — {(d.clientSearchResult?.name || d.clientForm?.name || d.clientRif) || 'Sin cliente'}
+                        </p>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <button type="button" onClick={() => handleUseDraft(d)} disabled={loadingDraft} className="rounded px-2 py-1 text-sm bg-[var(--primary)] text-white disabled:opacity-50">Usar</button>
+                        <button type="button" onClick={() => handleRemoveDraft(d.id)} disabled={loadingDraft} className="rounded px-2 py-1 text-sm text-[var(--destructive)] hover:bg-[var(--destructive)]/10 disabled:opacity-50" title="Eliminar borrador">Eliminar</button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: confirmar sustituir datos por borrador */}
+      {confirmLoadDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="confirm-load-draft-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="confirm-load-draft-title" className="font-semibold text-[var(--foreground)] text-lg mb-2">Usar borrador</h2>
+            <p className="text-sm text-[var(--muted)] mb-4">
+              Los datos actuales del formulario serán sustituidos por el borrador «{confirmLoadDraft.draft.title || 'Sin título'}». Se actualizará el stock actual de cada producto. ¿Deseas continuar?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setConfirmLoadDraft(null)} disabled={loadingDraft} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 font-medium disabled:opacity-50">Cancelar</button>
+              <button type="button" onClick={handleConfirmLoadDraft} disabled={loadingDraft} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 font-medium disabled:opacity-50">{loadingDraft ? 'Cargando…' : 'Confirmar'}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal: producto no encontrado */}
