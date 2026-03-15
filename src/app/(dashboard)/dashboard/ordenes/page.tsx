@@ -301,8 +301,8 @@ export default function OrdenesPage() {
                             <p className="text-sm text-[var(--muted)]">{order.invoice?.client?.name ?? '—'}</p>
                             <p className="text-xs text-[var(--muted)]">{order.invoice?.date ? new Date(order.invoice.date).toLocaleDateString() : ''}</p>
                             {showProductNamesInPreview && (order.invoice?.items?.length ?? 0) > 0 && (
-                              <p className="text-xs text-[var(--muted)] mt-1 truncate" title={(order.invoice.items ?? []).map((i) => i.product?.name).filter(Boolean).join(', ')}>
-                                {(order.invoice.items ?? []).map((i) => i.product?.name).filter(Boolean).join(', ')}
+                              <p className="text-xs text-[var(--muted)] mt-1 truncate" title={(order.invoice?.items ?? []).map((i) => i.product?.name).filter(Boolean).join(', ')}>
+                                {(order.invoice?.items ?? []).map((i) => i.product?.name).filter(Boolean).join(', ')}
                               </p>
                             )}
                           </div>
@@ -345,8 +345,8 @@ export default function OrdenesPage() {
                             <p className="text-sm text-[var(--muted)]">{order.invoice?.client?.name ?? '—'}</p>
                             <p className="text-xs text-[var(--muted)]">{order.invoice?.date ? new Date(order.invoice.date).toLocaleDateString() : ''}</p>
                             {showProductNamesInPreview && (order.invoice?.items?.length ?? 0) > 0 && (
-                              <p className="text-xs text-[var(--muted)] mt-1 truncate" title={(order.invoice.items ?? []).map((i) => i.product?.name).filter(Boolean).join(', ')}>
-                                {(order.invoice.items ?? []).map((i) => i.product?.name).filter(Boolean).join(', ')}
+                              <p className="text-xs text-[var(--muted)] mt-1 truncate" title={(order.invoice?.items ?? []).map((i) => i.product?.name).filter(Boolean).join(', ')}>
+                                {(order.invoice?.items ?? []).map((i) => i.product?.name).filter(Boolean).join(', ')}
                               </p>
                             )}
                           </div>
@@ -406,7 +406,7 @@ export default function OrdenesPage() {
                         <p className="text-xs text-[var(--muted)]">{order.invoice?.date ? new Date(order.invoice.date).toLocaleDateString() : ''}</p>
                         {showProductNamesInPreview && (order.invoice?.items?.length ?? 0) > 0 && (
                           <p className="text-xs text-[var(--muted)] mt-1 line-clamp-2">
-                            {(order.invoice.items ?? []).map((i) => i.product?.name).filter(Boolean).join(', ')}
+                            {(order.invoice?.items ?? []).map((i) => i.product?.name).filter(Boolean).join(', ')}
                           </p>
                         )}
                       </div>
