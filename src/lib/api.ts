@@ -162,6 +162,19 @@ export const invoicesApi = {
   },
 };
 
+export const ordersApi = {
+  list: (companyId: string, filters?: { status?: string; page?: number; limit?: number }) =>
+    api<{ items: unknown[]; total: number; page: number; limit: number }>('/orders', {
+      params: { companyId, ...(filters?.status && { status: filters.status }), ...(filters?.page != null && { page: String(filters.page) }), ...(filters?.limit != null && { limit: String(filters.limit) }) },
+    }),
+  get: (id: string, companyId: string) =>
+    api<unknown>(`/orders/${id}`, { params: { companyId } }),
+  getPendingCount: (companyId: string) =>
+    api<{ count: number }>('/orders/pending-count', { params: { companyId } }),
+  updateStatus: (id: string, companyId: string, status: string) =>
+    api<unknown>(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }), params: { companyId } }),
+};
+
 export const inventoryApi = {
   ingress: (companyId: string, data: { productId: string; quantity: number; unitCost?: number; salePrice?: number; observation?: string }) =>
     api<unknown>('/inventory/ingress', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),

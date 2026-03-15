@@ -17,6 +17,8 @@ import {
   IconPanelLeftOpen,
   IconX,
 } from '@/components/Icons';
+import { ordersApi } from '@/lib/api';
+import { SUPERADMIN_COMPANY_STORAGE_KEY } from '@/lib/constants';
 
 const SIDEBAR_COLLAPSED_KEY = 'nexusgest-sidebar-collapsed';
 
@@ -26,6 +28,7 @@ const MODULES: { key: string; label: string; href: string; superAdminOnly?: bool
   { key: 'CLIENTES', label: 'Clientes', href: '/dashboard/clientes' },
   { key: 'PRESUPUESTOS', label: 'Presupuestos', href: '/dashboard/presupuestos' },
   { key: 'FACTURACION', label: 'Facturación', href: '/dashboard/facturacion' },
+  { key: 'ORDENES', label: 'Órdenes', href: '/dashboard/ordenes' },
   { key: 'CIERRE_CAJA', label: 'Cierres de caja', href: '/dashboard/cierres-caja' },
   { key: 'INVENTARIO', label: 'Inventario', href: '/dashboard/inventario' },
   { key: 'ADMINISTRACION', label: 'Administración', href: '/dashboard/administracion' },
@@ -64,6 +67,7 @@ export function Sidebar({
   const { theme, setTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [allowedModules, setAllowedModules] = useState<string[] | null>(null);
+  const [ordersPendingCount, setOrdersPendingCount] = useState<number>(0);
 
   useEffect(() => {
     setCollapsed(getStoredCollapsed());
@@ -106,6 +110,25 @@ export function Sidebar({
     if (allowedModules === null) return true;
     return hasModuleAccess(m.key, allowedModules);
   });
+
+  const ordersModuleVisible = visibleModules.some((m) => m.key === 'ORDENES');
+  const companyIdForOrders = isSuperAdmin
+    ? (typeof window !== 'undefined' ? localStorage.getItem(SUPERADMIN_COMPANY_STORAGE_KEY) : null)
+    : user?.companyId ?? null;
+
+  useEffect(() => {
+    if (!ordersModuleVisible || !companyIdForOrders) {
+      setOrdersPendingCount(0);
+      return;
+    }
+    const fetchCount = () => {
+      ordersApi.getPendingCount(companyIdForOrders).then((r) => setOrdersPendingCount(r.count ?? 0)).catch(() => setOrdersPendingCount(0));
+    };
+    fetchCount();
+    const onOrdersUpdated = () => fetchCount();
+    window.addEventListener('orders-updated', onOrdersUpdated);
+    return () => window.removeEventListener('orders-updated', onOrdersUpdated);
+  }, [ordersModuleVisible, companyIdForOrders]);
 
   const widthClass = collapsed ? 'w-[4.5rem]' : 'w-64';
 
@@ -167,6 +190,7 @@ export function Sidebar({
         </Link>
         {visibleModules.map((m) => {
           const active = pathname === m.href || pathname.startsWith(m.href + '/');
+          const showOrdersBadge = m.key === 'ORDENES' && ordersPendingCount > 0;
           return (
             <Link
               key={m.key}
@@ -179,8 +203,13 @@ export function Sidebar({
               } ${collapsed ? 'justify-center' : ''}`}
               onClick={() => onClose?.()}
             >
-              <span className="w-6 h-6 flex items-center justify-center flex-shrink-0">
+              <span className="w-6 h-6 flex items-center justify-center flex-shrink-0 relative">
                 <ModuleIcon moduleKey={m.key} />
+                {showOrdersBadge && (
+                  <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-[var(--destructive)] text-white text-xs font-bold">
+                    {ordersPendingCount > 99 ? '99+' : ordersPendingCount}
+                  </span>
+                )}
               </span>
               {!collapsed && <span>{m.label}</span>}
             </Link>
@@ -255,9 +284,17 @@ export function Sidebar({
             </Link>
             {visibleModules.map((m) => {
               const active = pathname === m.href || pathname.startsWith(m.href + '/');
+              const showOrdersBadge = m.key === 'ORDENES' && ordersPendingCount > 0;
               return (
                 <Link key={m.key} href={m.href} onClick={() => onClose?.()} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${active ? 'bg-[var(--primary)] text-white' : 'text-[var(--foreground)] hover:bg-[var(--card-hover)]'}`}>
-                  <span className="w-6 h-6 flex items-center justify-center flex-shrink-0"><ModuleIcon moduleKey={m.key} /></span>
+                  <span className="w-6 h-6 flex items-center justify-center flex-shrink-0 relative">
+                    <ModuleIcon moduleKey={m.key} />
+                    {showOrdersBadge && (
+                      <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-[var(--destructive)] text-white text-xs font-bold">
+                        {ordersPendingCount > 99 ? '99+' : ordersPendingCount}
+                      </span>
+                    )}
+                  </span>
                   <span>{m.label}</span>
                 </Link>
               );

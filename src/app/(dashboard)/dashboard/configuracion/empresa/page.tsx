@@ -41,6 +41,8 @@ export default function ConfigEmpresaPage() {
   const [logoUrl, setLogoUrl] = useState('');
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const [ordersModuleEnabled, setOrdersModuleEnabled] = useState(false);
+  const [savingOrdersModule, setSavingOrdersModule] = useState(false);
   const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
   const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
   const closeActionModal = () => setActionModal((p) => ({ ...p, open: false }));
@@ -60,6 +62,7 @@ export default function ConfigEmpresaPage() {
       setPrimaryColor(c?.primaryColor ?? '#2563eb');
       setSecondaryColor(c?.secondaryColor ?? '#7c3aed');
       setAlternativeColor(c?.alternativeColor ?? '#0891b2');
+      setOrdersModuleEnabled(!!c?.ordersModuleEnabled);
       const root = document.documentElement;
       if (c?.primaryColor) { root.style.setProperty('--primary', c.primaryColor); root.style.setProperty('--primary-hover', c.primaryColor); }
       if (c?.secondaryColor) { root.style.setProperty('--secondary', c.secondaryColor); root.style.setProperty('--secondary-hover', c.secondaryColor); }
@@ -159,6 +162,34 @@ export default function ConfigEmpresaPage() {
             </div>
           </div>
           <button type="button" onClick={async () => { if (!companyId) return; setSavingCompany(true); try { await companiesApi.update(companyId, { name, address, rif, phone, email }); showActionModal('Datos de empresa guardados', 'Los datos de la empresa se han actualizado correctamente.', 'success'); } catch (e) { showActionModal('Error', e instanceof Error ? e.message : 'Error', 'error'); } finally { setSavingCompany(false); } }} disabled={savingCompany} className="mt-3 rounded-lg bg-[var(--secondary)] text-white px-4 py-2 disabled:opacity-50">Guardar datos empresa</button>
+        </section>
+
+        <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          <h2 className="font-semibold text-[var(--foreground)] mb-3">Módulo Órdenes</h2>
+          <p className="text-sm text-[var(--muted)] mb-3">Si está activado, cada vez que se genere una factura se creará una orden en estado &quot;pendiente&quot; que podrás gestionar en el módulo Órdenes.</p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={ordersModuleEnabled}
+              onChange={async (e) => {
+                if (!companyId) return;
+                const next = e.target.checked;
+                setSavingOrdersModule(true);
+                try {
+                  await configApi.update(companyId, { ordersModuleEnabled: next });
+                  setOrdersModuleEnabled(next);
+                  showActionModal(next ? 'Módulo Órdenes activado' : 'Módulo Órdenes desactivado', next ? 'A partir de ahora cada factura generará una orden.' : 'Las nuevas facturas ya no generarán órdenes.', 'success');
+                } catch (err) {
+                  showActionModal('Error', err instanceof Error ? err.message : 'Error al guardar', 'error');
+                } finally {
+                  setSavingOrdersModule(false);
+                }
+              }}
+              disabled={savingOrdersModule}
+              className="rounded border-[var(--border)]"
+            />
+            <span className="font-medium text-[var(--foreground)]">Activar módulo Órdenes</span>
+          </label>
         </section>
 
         <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
