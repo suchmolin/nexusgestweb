@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cierreCajaApi, companiesApi, configApi } from '@/lib/api';
 import { hasSectionAccess } from '@/lib/role-modules';
+import { SUPERADMIN_COMPANY_STORAGE_KEY } from '@/lib/constants';
 
 function getCompanyId(user: { role: string; companyId: string | null }, selected: string | null): string | null {
   return user?.role === 'SUPER_ADMIN' ? selected : user?.companyId ?? null;
@@ -148,9 +149,17 @@ export default function CierresCajaPage() {
   }, [user?.role]);
 
   useEffect(() => {
-    if (user?.role === 'SUPER_ADMIN' && companies.length > 0 && !selectedCompanyId) setSelectedCompanyId(companies[0].id);
-    if (user?.role !== 'SUPER_ADMIN' && user?.companyId) setSelectedCompanyId(user.companyId);
-  }, [user, companies, selectedCompanyId]);
+    if (user?.role === 'SUPER_ADMIN' && companies.length > 0) {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem(SUPERADMIN_COMPANY_STORAGE_KEY) : null;
+      const id = stored && companies.some((c) => c.id === stored) ? stored : companies[0].id;
+      setSelectedCompanyId(id);
+      try {
+        if (typeof window !== 'undefined') localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, id);
+      } catch {}
+    } else if (user?.role !== 'SUPER_ADMIN' && user?.companyId) {
+      setSelectedCompanyId(user.companyId);
+    }
+  }, [user?.role, user?.companyId, companies]);
 
   const loadCurrent = useCallback(() => {
     if (!companyId) return;
@@ -308,7 +317,16 @@ export default function CierresCajaPage() {
             <label className="text-sm text-[var(--muted)]">Empresa:</label>
             <select
               value={selectedCompanyId ?? ''}
-              onChange={(e) => setSelectedCompanyId(e.target.value || null)}
+              onChange={(e) => {
+                const id = e.target.value || null;
+                setSelectedCompanyId(id);
+                try {
+                  if (typeof window !== 'undefined') {
+                    if (id) localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, id);
+                    else localStorage.removeItem(SUPERADMIN_COMPANY_STORAGE_KEY);
+                  }
+                } catch {}
+              }}
               className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2 text-sm text-[var(--foreground)]"
             >
               <option value="">Seleccione</option>

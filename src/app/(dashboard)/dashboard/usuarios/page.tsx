@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usersApi, companiesApi, configApi } from '@/lib/api';
+import { SUPERADMIN_COMPANY_STORAGE_KEY } from '@/lib/constants';
 
 const MODULE_LABELS: Record<string, string> = {
   CONFIGURACION: 'Configuración',
@@ -72,6 +73,13 @@ export default function UsuariosPage() {
   useEffect(() => {
     if (isSuperAdmin) loadCompanies();
   }, [isSuperAdmin, filterUsername, filterName, filterRif, filterEmail]);
+
+  useEffect(() => {
+    if (isSuperAdmin && companies.length > 0) {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem(SUPERADMIN_COMPANY_STORAGE_KEY) : null;
+      if (stored && companies.some((c) => c.id === stored)) setSelectedCompanyId(stored);
+    }
+  }, [isSuperAdmin, companies]);
 
   useEffect(() => {
     if (isSuperAdmin && tab === 'crear') {
@@ -251,7 +259,17 @@ export default function UsuariosPage() {
                 {companies.map((c) => (
                   <tr
                     key={c.id}
-                    onClick={() => { setSelectedCompanyId(selectedCompanyId === c.id ? null : c.id); setSaveMessage(null); }}
+                    onClick={() => {
+                      const next = selectedCompanyId === c.id ? null : c.id;
+                      setSelectedCompanyId(next);
+                      setSaveMessage(null);
+                      try {
+                        if (typeof window !== 'undefined') {
+                          if (next) localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, next);
+                          else localStorage.removeItem(SUPERADMIN_COMPANY_STORAGE_KEY);
+                        }
+                      } catch {}
+                    }}
                     className={`border-t border-[var(--border)] cursor-pointer hover:bg-[var(--card-hover)] ${selectedCompanyId === c.id ? 'bg-[var(--primary)]/10' : ''}`}
                   >
                     <td className="p-3">{(c as any).adminUsername ?? '—'}</td>
