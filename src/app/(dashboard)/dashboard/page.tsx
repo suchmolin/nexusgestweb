@@ -13,6 +13,7 @@ const MODULES: { key: string; label: string; href: string; desc: string; superAd
   { key: 'CLIENTES', label: 'Clientes', href: '/dashboard/clientes', desc: 'Registro y búsqueda de clientes' },
   { key: 'PRESUPUESTOS', label: 'Presupuestos', href: '/dashboard/presupuestos', desc: 'Crear y consultar presupuestos' },
   { key: 'FACTURACION', label: 'Facturación', href: '/dashboard/facturacion', desc: 'Facturas desde presupuesto o nueva' },
+  { key: 'ORDENES', label: 'Órdenes', href: '/dashboard/ordenes', desc: 'Órdenes pendientes generadas desde facturas' },
   { key: 'CIERRE_CAJA', label: 'Cierres de caja', href: '/dashboard/cierres-caja', desc: 'Registrar y consultar cierres de caja' },
   { key: 'INVENTARIO', label: 'Inventario', href: '/dashboard/inventario', desc: 'Productos, ingresos y egresos' },
   { key: 'ADMINISTRACION', label: 'Administración', href: '/dashboard/administracion', desc: 'Resumen e indicadores' },

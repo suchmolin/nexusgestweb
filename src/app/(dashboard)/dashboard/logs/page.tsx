@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { logsApi, companiesApi } from '@/lib/api';
+import { SUPERADMIN_COMPANY_STORAGE_KEY } from '@/lib/constants';
 
 function getCompanyId(user: { role: string; companyId: string | null }, selected: string | null): string | null {
   return user.role === 'SUPER_ADMIN' ? selected : user.companyId;
@@ -26,8 +27,15 @@ export default function LogsPage() {
     if (user?.role === 'SUPER_ADMIN') companiesApi.list().then(setCompanies).catch(() => {});
   }, [user?.role]);
   useEffect(() => {
-    if (user?.role === 'SUPER_ADMIN' && companies.length > 0 && !selectedCompanyId) setSelectedCompanyId(companies[0].id);
-  }, [user, companies, selectedCompanyId]);
+    if (user?.role === 'SUPER_ADMIN' && companies.length > 0) {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem(SUPERADMIN_COMPANY_STORAGE_KEY) : null;
+      const id = stored && companies.some((c) => c.id === stored) ? stored : companies[0].id;
+      setSelectedCompanyId(id);
+      try {
+        if (typeof window !== 'undefined') localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, id);
+      } catch {}
+    }
+  }, [user?.role, companies]);
 
   const loadLogs = useCallback(() => {
     const params: Record<string, string> = { page: String(page), limit: String(limit) };
@@ -51,7 +59,20 @@ export default function LogsPage() {
       {user.role === 'SUPER_ADMIN' && (
         <div className="mt-4">
           <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Empresa</label>
-          <select value={selectedCompanyId ?? ''} onChange={(e) => setSelectedCompanyId(e.target.value || null)} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2">
+          <select
+            value={selectedCompanyId ?? ''}
+            onChange={(e) => {
+              const id = e.target.value || null;
+              setSelectedCompanyId(id);
+              try {
+                if (typeof window !== 'undefined') {
+                  if (id) localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, id);
+                  else localStorage.removeItem(SUPERADMIN_COMPANY_STORAGE_KEY);
+                }
+              } catch {}
+            }}
+            className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
+          >
             <option value="">Todas</option>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>

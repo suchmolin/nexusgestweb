@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { clientsApi, companiesApi } from '@/lib/api';
+import { SUPERADMIN_COMPANY_STORAGE_KEY } from '@/lib/constants';
 
 type Client = {
   id: string;
@@ -49,13 +50,17 @@ export default function ClientesPage() {
   }, [user?.role]);
 
   useEffect(() => {
-    if (user?.role === 'SUPER_ADMIN' && companies.length > 0 && !selectedCompanyId) {
-      setSelectedCompanyId(companies[0].id);
-    }
-    if (user?.role !== 'SUPER_ADMIN' && user?.companyId) {
+    if (user?.role === 'SUPER_ADMIN' && companies.length > 0) {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem(SUPERADMIN_COMPANY_STORAGE_KEY) : null;
+      const id = stored && companies.some((c) => c.id === stored) ? stored : companies[0].id;
+      setSelectedCompanyId(id);
+      try {
+        if (typeof window !== 'undefined' && id) localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, id);
+      } catch {}
+    } else if (user?.role !== 'SUPER_ADMIN' && user?.companyId) {
       setSelectedCompanyId(user.companyId);
     }
-  }, [user, companies, selectedCompanyId]);
+  }, [user?.role, user?.companyId, companies]);
 
   useEffect(() => {
     if (!companyId) return;
@@ -134,7 +139,16 @@ export default function ClientesPage() {
           <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Empresa</label>
           <select
             value={selectedCompanyId ?? ''}
-            onChange={(e) => setSelectedCompanyId(e.target.value || null)}
+            onChange={(e) => {
+              const id = e.target.value || null;
+              setSelectedCompanyId(id);
+              try {
+                if (typeof window !== 'undefined') {
+                  if (id) localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, id);
+                  else localStorage.removeItem(SUPERADMIN_COMPANY_STORAGE_KEY);
+                }
+              } catch {}
+            }}
             className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2 text-[var(--foreground)]"
           >
             <option value="">Seleccionar empresa</option>

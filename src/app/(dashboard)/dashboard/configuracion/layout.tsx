@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { companiesApi, configApi } from '@/lib/api';
 import { hasSectionAccess } from '@/lib/role-modules';
+import { SUPERADMIN_COMPANY_STORAGE_KEY } from '@/lib/constants';
 
 function getCompanyId(user: { role: string; companyId: string | null } | null, selected: string | null): string | null {
   return user?.role === 'SUPER_ADMIN' ? selected : user?.companyId ?? null;
@@ -51,7 +52,14 @@ export default function ConfiguracionLayout({ children }: { children: React.Reac
         .list()
         .then((list) => {
           setCompanies(list);
-          if (list.length > 0) setSelectedCompanyId((prev) => prev ?? list[0].id);
+          if (list.length > 0) {
+            const stored = typeof window !== 'undefined' ? localStorage.getItem(SUPERADMIN_COMPANY_STORAGE_KEY) : null;
+            const id = stored && list.some((c) => c.id === stored) ? stored : list[0].id;
+            setSelectedCompanyId(id);
+            try {
+              if (typeof window !== 'undefined') localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, id);
+            } catch {}
+          }
         })
         .catch(() => {});
     }
@@ -100,7 +108,13 @@ export default function ConfiguracionLayout({ children }: { children: React.Reac
             <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Empresa</label>
             <select
               value={selectedCompanyId ?? ''}
-              onChange={(e) => setSelectedCompanyId(e.target.value || null)}
+              onChange={(e) => {
+                const id = e.target.value || null;
+                setSelectedCompanyId(id);
+                try {
+                  if (id && typeof window !== 'undefined') localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, id);
+                } catch {}
+              }}
               className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
             >
               {companies.map((c) => (

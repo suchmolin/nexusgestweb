@@ -21,6 +21,7 @@ function getModuleKeyFromPath(pathname: string): string | null {
     'clientes': 'CLIENTES',
     'presupuestos': 'PRESUPUESTOS',
     'facturacion': 'FACTURACION',
+    'ordenes': 'ORDENES',
     'cierres-caja': 'CIERRE_CAJA',
     'inventario': 'INVENTARIO',
     'administracion': 'ADMINISTRACION',

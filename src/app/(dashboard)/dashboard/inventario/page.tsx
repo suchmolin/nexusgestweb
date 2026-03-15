@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { productsApi, inventoryApi, companiesApi, configApi } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 import { hasSectionAccess } from '@/lib/role-modules';
+import { SUPERADMIN_COMPANY_STORAGE_KEY } from '@/lib/constants';
 
 function getCompanyId(user: { role: string; companyId: string | null }, selected: string | null): string | null {
   return user.role === 'SUPER_ADMIN' ? selected : user.companyId;
@@ -92,9 +93,17 @@ export default function InventarioPage() {
     if (user?.role === 'SUPER_ADMIN') companiesApi.list().then(setCompanies).catch(() => {});
   }, [user?.role]);
   useEffect(() => {
-    if (user?.role === 'SUPER_ADMIN' && companies.length > 0 && !selectedCompanyId) setSelectedCompanyId(companies[0].id);
-    if (user?.role !== 'SUPER_ADMIN' && user?.companyId) setSelectedCompanyId(user.companyId);
-  }, [user, companies, selectedCompanyId]);
+    if (user?.role === 'SUPER_ADMIN' && companies.length > 0) {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem(SUPERADMIN_COMPANY_STORAGE_KEY) : null;
+      const id = stored && companies.some((c) => c.id === stored) ? stored : companies[0].id;
+      setSelectedCompanyId(id);
+      try {
+        if (typeof window !== 'undefined') localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, id);
+      } catch {}
+    } else if (user?.role !== 'SUPER_ADMIN' && user?.companyId) {
+      setSelectedCompanyId(user.companyId);
+    }
+  }, [user?.role, user?.companyId, companies]);
 
   const loadProducts = useCallback(() => {
     if (!companyId) return;
@@ -221,7 +230,17 @@ export default function InventarioPage() {
       {user.role === 'SUPER_ADMIN' && (
         <div className="mt-4">
           <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Empresa</label>
-          <select value={selectedCompanyId ?? ''} onChange={(e) => setSelectedCompanyId(e.target.value || null)} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2">
+          <select
+            value={selectedCompanyId ?? ''}
+            onChange={(e) => {
+              const id = e.target.value || null;
+              setSelectedCompanyId(id);
+              try {
+                if (id && typeof window !== 'undefined') localStorage.setItem(SUPERADMIN_COMPANY_STORAGE_KEY, id);
+              } catch {}
+            }}
+            className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2"
+          >
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>

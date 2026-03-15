@@ -9,6 +9,7 @@ export const MODULE_LABELS: Record<string, string> = {
   CLIENTES: 'Clientes',
   PRESUPUESTOS: 'Presupuestos',
   FACTURACION: 'Facturación',
+  ORDENES: 'Órdenes',
   INVENTARIO: 'Inventario',
   ADMINISTRACION: 'Administración',
   LOGS: 'Logs',
