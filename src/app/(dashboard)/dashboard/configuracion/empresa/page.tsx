@@ -165,34 +165,6 @@ export default function ConfigEmpresaPage() {
         </section>
 
         <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
-          <h2 className="font-semibold text-[var(--foreground)] mb-3">Módulo Órdenes</h2>
-          <p className="text-sm text-[var(--muted)] mb-3">Si está activado, cada vez que se genere una factura se creará una orden en estado &quot;pendiente&quot; que podrás gestionar en el módulo Órdenes.</p>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={ordersModuleEnabled}
-              onChange={async (e) => {
-                if (!companyId) return;
-                const next = e.target.checked;
-                setSavingOrdersModule(true);
-                try {
-                  await configApi.update(companyId, { ordersModuleEnabled: next });
-                  setOrdersModuleEnabled(next);
-                  showActionModal(next ? 'Módulo Órdenes activado' : 'Módulo Órdenes desactivado', next ? 'A partir de ahora cada factura generará una orden.' : 'Las nuevas facturas ya no generarán órdenes.', 'success');
-                } catch (err) {
-                  showActionModal('Error', err instanceof Error ? err.message : 'Error al guardar', 'error');
-                } finally {
-                  setSavingOrdersModule(false);
-                }
-              }}
-              disabled={savingOrdersModule}
-              className="rounded border-[var(--border)]"
-            />
-            <span className="font-medium text-[var(--foreground)]">Activar módulo Órdenes</span>
-          </label>
-        </section>
-
-        <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
           <h2 className="font-semibold text-[var(--foreground)] mb-3">Logo del sistema</h2>
           <p className="text-sm text-[var(--muted)] mb-3">Se muestra arriba a la izquierda en la barra lateral en lugar de &quot;NexusGest&quot;.</p>
           <div className="flex flex-wrap items-start gap-3">

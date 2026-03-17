@@ -54,6 +54,8 @@ export default function InventarioPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [exentoIva, setExentoIva] = useState(false);
+  const [isService, setIsService] = useState(false);
+  const [addSalePrice, setAddSalePrice] = useState('');
   const [addSaving, setAddSaving] = useState(false);
 
   const [searchQ, setSearchQ] = useState('');
@@ -118,13 +120,26 @@ export default function InventarioPage() {
 
   const handleAddProduct = async () => {
     if (!companyId || !code.trim() || !name.trim()) return;
+    if (isService && (!addSalePrice.trim() || Number(addSalePrice) <= 0)) {
+      showActionModal('Precio requerido', 'Para un servicio debes indicar un precio de venta.', 'error');
+      return;
+    }
     setAddSaving(true);
     try {
-      await productsApi.create(companyId, { code: code.trim(), name: name.trim(), description: description.trim() || undefined, exentoIva });
+      await productsApi.create(companyId, {
+        code: code.trim(),
+        name: name.trim(),
+        description: description.trim() || undefined,
+        exentoIva,
+        isService,
+        salePrice: isService ? Number(addSalePrice) : undefined,
+      });
       setCode('');
       setName('');
       setDescription('');
       setExentoIva(false);
+      setIsService(false);
+      setAddSalePrice('');
       loadProducts();
       showActionModal('Producto agregado', 'El producto se ha registrado correctamente en el inventario.', 'success');
     } catch (e) {
@@ -269,6 +284,26 @@ export default function InventarioPage() {
                   <input type="checkbox" checked={exentoIva} onChange={(e) => setExentoIva(e.target.checked)} className="rounded border-[var(--border)]" />
                   <span className="text-sm text-[var(--foreground)]">Exento de IVA</span>
                 </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isService}
+                    onChange={(e) => setIsService(e.target.checked)}
+                    className="rounded border-[var(--border)]"
+                  />
+                  <span className="text-sm text-[var(--foreground)]">Es servicio (no maneja stock)</span>
+                </label>
+                {isService && (
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={addSalePrice}
+                    onChange={(e) => setAddSalePrice(e.target.value)}
+                    placeholder="Precio de venta del servicio *"
+                    className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2"
+                  />
+                )}
                 <button type="button" onClick={handleAddProduct} disabled={addSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 disabled:opacity-50">{addSaving ? 'Guardando...' : 'Agregar'}</button>
               </div>
             </div>

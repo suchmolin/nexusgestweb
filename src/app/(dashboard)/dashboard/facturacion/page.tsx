@@ -12,6 +12,7 @@ const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', '
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
 const PRODUCT_SEARCH_DEBOUNCE_MS = 280;
 const CURRENCIES_STORAGE_KEY = 'nexusgest_facturacion_currencies';
+const CREATE_ORDER_STORAGE_KEY = 'nexusgest_facturacion_create_order';
 const INVOICE_DRAFTS_STORAGE_PREFIX = 'nexusgest_invoice_drafts_';
 
 function getInitialCurrenciesFromStorage(key: string): string[] {
@@ -38,7 +39,7 @@ function getDefaultCurrencyFromConfig(cfg: { currencySymbol?: string } | null): 
   return null;
 }
 
-type InvoiceItemRow = { productId: string; code: string; name: string; quantity: number; unitPrice: number; sortOrder: number; exentoIva: boolean; stock?: number };
+type InvoiceItemRow = { productId: string; code: string; name: string; quantity: number; unitPrice: number; sortOrder: number; exentoIva: boolean; stock?: number; isService?: boolean };
 
 export type InvoiceDraft = {
   id: string;
@@ -211,6 +212,15 @@ export default function FacturacionPage() {
   const [validity, setValidity] = useState('');
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [errorInvoice, setErrorInvoice] = useState('');
+  const [createOrder, setCreateOrder] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const raw = localStorage.getItem(CREATE_ORDER_STORAGE_KEY);
+      if (raw === 'false') return false;
+      if (raw === 'true') return true;
+    } catch {}
+    return true;
+  });
   const [draftsModalOpen, setDraftsModalOpen] = useState(false);
   const [draftsList, setDraftsList] = useState<InvoiceDraft[]>([]);
   const [confirmLoadDraft, setConfirmLoadDraft] = useState<{ draft: InvoiceDraft } | null>(null);
@@ -383,12 +393,37 @@ export default function FacturacionPage() {
 
   const addProductToItems = useCallback((prod: any) => {
     const unitPrice = Number(prod.salePrice) || 0;
-    const stock = prod.stock != null ? Number(prod.stock) : undefined;
+    const isService = !!prod.isService;
+    const stock = isService ? undefined : (prod.stock != null ? Number(prod.stock) : undefined);
     const existing = items.find((i) => i.productId === prod.id);
     if (existing) {
-      setItems((prev) => prev.map((i) => i.productId === prod.id ? { ...i, quantity: i.quantity + 1, ...(stock != null && i.stock == null ? { stock } : {}) } : i));
+      setItems((prev) =>
+        prev.map((i) =>
+          i.productId === prod.id
+            ? {
+                ...i,
+                quantity: i.quantity + 1,
+                ...(stock != null && i.stock == null ? { stock } : {}),
+                ...(isService ? { isService: true, stock: undefined } : {}),
+              }
+            : i,
+        ),
+      );
     } else {
-      setItems((prev) => [...prev, { productId: prod.id, code: prod.code, name: prod.name, quantity: 1, unitPrice, sortOrder: prev.length + 1, exentoIva: prod.exentoIva ?? false, stock }]);
+      setItems((prev) => [
+        ...prev,
+        {
+          productId: prod.id,
+          code: prod.code,
+          name: prod.name,
+          quantity: 1,
+          unitPrice,
+          sortOrder: prev.length + 1,
+          exentoIva: prod.exentoIva ?? false,
+          stock,
+          isService,
+        },
+      ]);
     }
   }, [items]);
 
@@ -651,7 +686,11 @@ export default function FacturacionPage() {
       return;
     }
     if (items.length === 0) { setErrorInvoice('Agrega al menos un producto.'); return; }
-    const noStockItems = items.filter((i) => i.stock != null && (i.quantity ?? 0) > i.stock);
+    if (items.some((i) => !i.quantity || i.quantity <= 0)) {
+      setErrorInvoice('Todas las cantidades de producto deben ser mayores a 0.');
+      return;
+    }
+    const noStockItems = items.filter((i) => !i.isService && i.stock != null && (i.quantity ?? 0) > i.stock);
     if (noStockItems.length > 0) {
       setErrorInvoice('Los productos resaltados en rojo no tienen stock disponible. Ajusta las cantidades o quítalos de la factura.');
       return;
@@ -746,6 +785,7 @@ export default function FacturacionPage() {
         deliveryTime: invVisible('deliveryTime') ? deliveryTime.trim() || undefined : undefined,
         validity: invVisible('validity') ? validity.trim() || undefined : undefined,
         items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder, exentoIva: i.exentoIva })),
+        createOrder,
       }) as { id: string };
       setTitle(''); setClientRif(''); setClientSearchResult(null); setSelectedClientId(null);
       setItems([]); setRateOfDay(''); setObservations(''); setPaymentMethods([]); setDeliveryTime(''); setValidity('');
@@ -755,7 +795,11 @@ export default function FacturacionPage() {
 
   const performCreateInvoice = async () => {
     if (!companyId || !selectedClientId || !paymentBreakdownModal) return;
-    const noStockItems = items.filter((i) => i.stock != null && (i.quantity ?? 0) > i.stock);
+    if (items.some((i) => !i.quantity || i.quantity <= 0)) {
+      setErrorInvoice('Todas las cantidades de producto deben ser mayores a 0.');
+      return;
+    }
+    const noStockItems = items.filter((i) => !i.isService && i.stock != null && (i.quantity ?? 0) > i.stock);
     if (noStockItems.length > 0) {
       setErrorInvoice('Los productos resaltados en rojo no tienen stock disponible. Ajusta las cantidades o quítalos de la factura.');
       return;
@@ -794,6 +838,7 @@ export default function FacturacionPage() {
         validity: invVisible('validity') ? validity.trim() || undefined : undefined,
         items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder, exentoIva: i.exentoIva })),
       };
+      payload.createOrder = createOrder;
       if (paymentBreakdownModal) {
         payload.paymentBreakdown = {
           efectivoBs: paymentBreakdownModal.efectivoBs || 0,
@@ -1145,11 +1190,27 @@ export default function FacturacionPage() {
                         const unitEur = baseCurrencyFromConfig === 'EUR' ? (it.unitPrice ?? 0) : eurRateNum ? (it.unitPrice ?? 0) / eurRateNum : 0;
                         const unitBsFromUsd = usdRateNum ? (it.unitPrice ?? 0) * usdRateNum : 0;
                         const unitBsFromEur = eurRateNum ? (it.unitPrice ?? 0) * eurRateNum : 0;
-                        const sinStock = it.stock != null && (it.quantity ?? 0) > it.stock;
+                        const sinStock = !it.isService && it.stock != null && (it.quantity ?? 0) > it.stock;
                         return (
                         <tr key={it.productId} className={`border-t border-[var(--border)] ${sinStock ? 'bg-red-500/15 border-l-4 border-l-red-500' : ''}`}>
                           <td className="p-2">{it.code}</td><td className="p-2">{it.name}</td>
-                          <td className="p-2"><input type="number" min={1} value={it.quantity} onChange={(e) => updateItem(it.productId, { quantity: Number(e.target.value) || 1 })} className="w-16 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-1" /></td>
+                          <td className="p-2">
+                            <input
+                              type="number"
+                              min={1}
+                              value={it.quantity === 0 ? '' : it.quantity}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '') {
+                                  updateItem(it.productId, { quantity: 0 });
+                                } else {
+                                  const num = Number(val);
+                                  updateItem(it.productId, { quantity: !isNaN(num) && num > 0 ? num : 0 });
+                                }
+                              }}
+                              className="w-16 rounded bg-[var(--background)] border border-[var(--border)] px-2 py-1"
+                            />
+                          </td>
                           <td className="p-2 text-right tabular-nums">{unitDisplay.toFixed(2)}</td>
                           {currencies.includes('USD') && usdRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{(baseCurrencyFromConfig === 'USD' ? unitBsFromUsd : unitUsd).toFixed(2)}</td>}
                           {currencies.includes('EUR') && eurRateNum != null && <td className="p-2 text-right tabular-nums text-[var(--muted)]">{(baseCurrencyFromConfig === 'EUR' ? unitBsFromEur : unitEur).toFixed(2)}</td>}
@@ -1247,6 +1308,25 @@ export default function FacturacionPage() {
                   {(config?.invoiceFieldsConfig ?? {})['priority']?.visible !== false && (
                   <div><label className="block text-sm text-[var(--muted)] mb-1">Prioridad</label><select value={priority} onChange={(e) => setPriority(e.target.value as 'NORMAL' | 'URGENT')} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2"><option value="NORMAL">Normal</option><option value="URGENT">Urgente</option></select></div>
                   )}
+                  <div className="md:col-span-2">
+                    <label className="flex items-center gap-2 text-sm text-[var(--foreground)]">
+                      <input
+                        type="checkbox"
+                        checked={createOrder}
+                        onChange={(e) => {
+                          const val = e.target.checked;
+                          setCreateOrder(val);
+                          try {
+                            if (typeof window !== 'undefined') localStorage.setItem(CREATE_ORDER_STORAGE_KEY, String(val));
+                          } catch {}
+                        }}
+                      />
+                      <span>Crear orden asociada a esta factura</span>
+                    </label>
+                    <p className="text-xs text-[var(--muted)] mt-1">
+                      Si está activo, al guardar la factura se creará una orden en el módulo de órdenes (si está habilitado).
+                    </p>
+                  </div>
                   {(config?.invoiceFieldsConfig ?? {})['paymentMethods']?.visible !== false && (
                   <div className="md:col-span-2"><label className="block text-sm text-[var(--muted)] mb-1">Forma de pago</label><div className="flex flex-wrap gap-2">{PAYMENT_OPTIONS.map((p) => (<label key={p} className="flex items-center gap-1"><input type="checkbox" checked={paymentMethods.includes(p)} onChange={() => togglePayment(p)} /><span>{p.replace('_', ' ')}</span></label>))}</div></div>
                   )}
@@ -1588,8 +1668,21 @@ export default function FacturacionPage() {
                       min={0}
                       step={0.01}
                       placeholder="Monto"
-                      value={typeof paymentBreakdownModal[key] === 'number' ? paymentBreakdownModal[key] : ''}
-                      onChange={(e) => setPaymentBreakdownModal((p) => p ? { ...p, [key]: parseFloat(e.target.value) || 0 } : null)}
+                      value={typeof paymentBreakdownModal[key] === 'number'
+                        ? (paymentBreakdownModal[key] as number) === 0
+                          ? ''
+                          : (paymentBreakdownModal[key] as number)
+                        : ''}
+                      onChange={(e) =>
+                        setPaymentBreakdownModal((p) =>
+                          p
+                            ? {
+                                ...p,
+                                [key]: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0,
+                              }
+                            : null
+                        )
+                      }
                       className="flex-1 min-w-[100px] rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-sm"
                     />
                     {withRef && (
