@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useConfigContext } from '../layout';
-import { configApi, uploadImage } from '@/lib/api';
+import { configApi, invoicesApi, uploadImage } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 
 const PAGE_FORMATS = ['LETTER', 'A4', 'TICKET'];
@@ -30,6 +30,8 @@ export default function ConfigPresupuestosFacturasPage() {
   const [invoiceFormat, setInvoiceFormat] = useState('LETTER');
   const [invoiceOnlyBolivares, setInvoiceOnlyBolivares] = useState(false);
   const [invoicePaymentBreakdown, setInvoicePaymentBreakdown] = useState(false);
+  const [invoiceNextNumber, setInvoiceNextNumber] = useState<number | null>(null);
+  const [invoiceNextNumberLocked, setInvoiceNextNumberLocked] = useState(false);
   const [invoiceBackgroundUrl, setInvoiceBackgroundUrl] = useState('');
   const [invoiceMarginTop, setInvoiceMarginTop] = useState(DEFAULT_MARGIN);
   const [invoiceMarginLeft, setInvoiceMarginLeft] = useState(DEFAULT_MARGIN);
@@ -56,6 +58,10 @@ export default function ConfigPresupuestosFacturasPage() {
       setInvoiceFormat(c?.invoiceFormat ?? 'LETTER');
       setInvoiceOnlyBolivares(!!c?.invoiceOnlyBolivares);
       setInvoicePaymentBreakdown(!!c?.invoicePaymentBreakdown);
+      setInvoiceNextNumber(
+        typeof c?.invoiceNextNumber === 'number' ? c.invoiceNextNumber : null,
+      );
+      setInvoiceNextNumberLocked(!!c?.invoiceNextNumberLocked);
       setInvoiceBackgroundUrl(c?.invoiceBackgroundImageUrl ?? '');
       setInvoiceMarginTop(c?.invoicePdfMarginTop ?? c?.pdfMarginTop ?? DEFAULT_MARGIN);
       setInvoiceMarginLeft(c?.invoicePdfMarginLeft ?? c?.pdfMarginLeft ?? DEFAULT_MARGIN);
@@ -64,6 +70,20 @@ export default function ConfigPresupuestosFacturasPage() {
       const defaultFields = Object.fromEntries(BUDGET_FIELDS.map((f) => [f.key, { visible: true, required: false }]));
       setBudgetFieldsConfig({ ...defaultFields, ...(c?.budgetFieldsConfig || {}) });
       setInvoiceFieldsConfig({ ...defaultFields, ...(c?.invoiceFieldsConfig || {}) });
+
+      // Si aún no hay número configurado y no está bloqueado, mostramos el siguiente basado en la última factura
+      if ((c?.invoiceNextNumber == null || Number.isNaN(c.invoiceNextNumber)) && !c?.invoiceNextNumberLocked) {
+        invoicesApi
+          .list(companyId, { limit: '1', page: '1', estado: 'validas' })
+          .then((res: any) => {
+            const last = Array.isArray(res?.items) && res.items.length > 0 ? res.items[0] : null;
+            if (!last?.correlative) return;
+            const parts = String(last.correlative).split('-');
+            const num = parts.length >= 2 ? parseInt(parts[1], 10) + 1 : 1;
+            if (!Number.isNaN(num) && num > 0) setInvoiceNextNumber(num);
+          })
+          .catch(() => {});
+      }
     }).catch(() => {});
   }, [companyId]);
 
@@ -93,7 +113,7 @@ export default function ConfigPresupuestosFacturasPage() {
     if (!companyId) return;
     setSaving(true);
     try {
-      await configApi.update(companyId, {
+      const payload: any = {
         budgetFormat: budgetFormat || null,
         budgetBackgroundImageUrl: budgetBackgroundUrl.trim() || null,
         budgetPdfMarginTop: budgetMarginTop >= 0 ? budgetMarginTop : null,
@@ -110,7 +130,14 @@ export default function ConfigPresupuestosFacturasPage() {
         invoicePdfMarginRight: invoiceMarginRight >= 0 ? invoiceMarginRight : null,
         invoicePdfMarginBottom: invoiceMarginBottom >= 0 ? invoiceMarginBottom : null,
         invoiceFieldsConfig: Object.keys(invoiceFieldsConfig).length ? invoiceFieldsConfig : null,
-      });
+      };
+      if (!invoiceNextNumberLocked && invoiceNextNumber != null && !Number.isNaN(invoiceNextNumber)) {
+        payload.invoiceNextNumber = invoiceNextNumber;
+      }
+      await configApi.update(companyId, payload);
+      if (!invoiceNextNumberLocked && invoiceNextNumber != null) {
+        setInvoiceNextNumberLocked(true);
+      }
       showActionModal('Configuración guardada', 'Los cambios de presupuestos y facturas se han guardado correctamente.', 'success');
     } catch (e) {
       showActionModal('Error al guardar', e instanceof Error ? e.message : 'Error al guardar', 'error');
@@ -210,6 +237,28 @@ export default function ConfigPresupuestosFacturasPage() {
         <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
           <h2 className="font-semibold text-[var(--foreground)] mb-4">Facturas</h2>
           <p className="text-sm text-[var(--muted)] mb-4">Márgenes, formato de página, imagen de fondo y campos del PDF de facturas.</p>
+
+          <div className="mb-6">
+            <label className="block text-sm text-[var(--muted)] mb-1">Número de la siguiente factura</label>
+            <input
+              type="number"
+              min={1}
+              value={invoiceNextNumber ?? ''}
+              onChange={(e) =>
+                setInvoiceNextNumber(
+                  e.target.value === '' ? null : parseInt(e.target.value, 10) || 1,
+                )
+              }
+              className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 disabled:opacity-50"
+              readOnly={invoiceNextNumberLocked}
+              disabled={invoiceNextNumberLocked}
+            />
+            <p className="text-xs text-[var(--muted)] mt-1">
+              {invoiceNextNumberLocked
+                ? 'Este campo solo puede ser modificado una sola vez por empresa. Si deseas volver a modificarlo, consulta con un operador.'
+                : 'Este campo solo puede ser modificado una sola vez por empresa. Aquí defines desde qué número comenzarán (o continuarán) las facturas.'}
+            </p>
+          </div>
 
           <h3 className="font-medium text-[var(--foreground)] mb-2">Márgenes del PDF (píxeles)</h3>
           <p className="text-xs text-[var(--muted)] mb-2">Separación desde el borde hasta el contenido.</p>

@@ -41,7 +41,7 @@ function getCompanyId(user: { role: string; companyId: string | null }, selected
   return user.role === 'SUPER_ADMIN' ? selected : user.companyId;
 }
 
-type BudgetItemRow = { productId: string; code: string; name: string; description?: string; stock?: number; quantity: number; unitPrice: number; sortOrder: number; exentoIva: boolean };
+type BudgetItemRow = { productId: string; code: string; name: string; description?: string; stock?: number; isService?: boolean; quantity: number; unitPrice: number; sortOrder: number; exentoIva: boolean };
 
 export default function PresupuestosPage() {
   const { user } = useAuth();
@@ -299,6 +299,8 @@ export default function PresupuestosPage() {
 
   const addProductToItems = useCallback((prod: any) => {
     const unitPrice = Number(prod.salePrice) || 0;
+    const isService = !!prod.isService;
+    const stock = isService ? undefined : prod.stock;
     const existing = items.find((i) => i.productId === prod.id);
     if (existing) {
       setItems((prev) => prev.map((i) => i.productId === prod.id ? { ...i, quantity: i.quantity + 1 } : i));
@@ -310,7 +312,8 @@ export default function PresupuestosPage() {
           code: prod.code,
           name: prod.name,
           description: prod.description,
-          stock: prod.stock,
+          stock,
+          isService,
           quantity: 1,
           unitPrice,
           sortOrder: prev.length + 1,
