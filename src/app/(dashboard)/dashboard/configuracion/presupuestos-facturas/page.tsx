@@ -38,6 +38,8 @@ export default function ConfigPresupuestosFacturasPage() {
   const [invoiceMarginRight, setInvoiceMarginRight] = useState(DEFAULT_MARGIN);
   const [invoiceMarginBottom, setInvoiceMarginBottom] = useState(DEFAULT_MARGIN);
   const [invoiceFieldsConfig, setInvoiceFieldsConfig] = useState<Record<string, { visible: boolean; required: boolean }>>({});
+  const isTicketBudget = budgetFormat === 'TICKET';
+  const isTicketInvoice = invoiceFormat === 'TICKET';
   const [saving, setSaving] = useState(false);
   const [uploadingField, setUploadingField] = useState<'budgetBg' | 'invoiceBg' | null>(null);
   const budgetBgInputRef = useRef<HTMLInputElement>(null);
@@ -115,20 +117,20 @@ export default function ConfigPresupuestosFacturasPage() {
     try {
       const payload: any = {
         budgetFormat: budgetFormat || null,
-        budgetBackgroundImageUrl: budgetBackgroundUrl.trim() || null,
-        budgetPdfMarginTop: budgetMarginTop >= 0 ? budgetMarginTop : null,
-        budgetPdfMarginLeft: budgetMarginLeft >= 0 ? budgetMarginLeft : null,
-        budgetPdfMarginRight: budgetMarginRight >= 0 ? budgetMarginRight : null,
-        budgetPdfMarginBottom: budgetMarginBottom >= 0 ? budgetMarginBottom : null,
+        budgetBackgroundImageUrl: isTicketBudget ? null : budgetBackgroundUrl.trim() || null,
+        budgetPdfMarginTop: isTicketBudget ? null : (budgetMarginTop >= 0 ? budgetMarginTop : null),
+        budgetPdfMarginLeft: isTicketBudget ? null : (budgetMarginLeft >= 0 ? budgetMarginLeft : null),
+        budgetPdfMarginRight: isTicketBudget ? null : (budgetMarginRight >= 0 ? budgetMarginRight : null),
+        budgetPdfMarginBottom: isTicketBudget ? null : (budgetMarginBottom >= 0 ? budgetMarginBottom : null),
         budgetFieldsConfig: Object.keys(budgetFieldsConfig).length ? budgetFieldsConfig : null,
         invoiceFormat: invoiceFormat || null,
         invoiceOnlyBolivares,
         invoicePaymentBreakdown,
-        invoiceBackgroundImageUrl: invoiceBackgroundUrl.trim() || null,
-        invoicePdfMarginTop: invoiceMarginTop >= 0 ? invoiceMarginTop : null,
-        invoicePdfMarginLeft: invoiceMarginLeft >= 0 ? invoiceMarginLeft : null,
-        invoicePdfMarginRight: invoiceMarginRight >= 0 ? invoiceMarginRight : null,
-        invoicePdfMarginBottom: invoiceMarginBottom >= 0 ? invoiceMarginBottom : null,
+        invoiceBackgroundImageUrl: isTicketInvoice ? null : invoiceBackgroundUrl.trim() || null,
+        invoicePdfMarginTop: isTicketInvoice ? null : (invoiceMarginTop >= 0 ? invoiceMarginTop : null),
+        invoicePdfMarginLeft: isTicketInvoice ? null : (invoiceMarginLeft >= 0 ? invoiceMarginLeft : null),
+        invoicePdfMarginRight: isTicketInvoice ? null : (invoiceMarginRight >= 0 ? invoiceMarginRight : null),
+        invoicePdfMarginBottom: isTicketInvoice ? null : (invoiceMarginBottom >= 0 ? invoiceMarginBottom : null),
         invoiceFieldsConfig: Object.keys(invoiceFieldsConfig).length ? invoiceFieldsConfig : null,
       };
       if (!invoiceNextNumberLocked && invoiceNextNumber != null && !Number.isNaN(invoiceNextNumber)) {
@@ -152,27 +154,73 @@ export default function ConfigPresupuestosFacturasPage() {
     right: number, setRight: (n: number) => void,
     bottom: number, setBottom: (n: number) => void,
     onRestore: () => void,
+    disabled?: boolean,
   ) => (
     <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div>
           <label className="block text-sm text-[var(--muted)] mb-1">Superior</label>
-          <input type="number" min={0} value={top} onChange={(e) => setTop(parseInt(e.target.value, 10) || 0)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+          <input
+            type="number"
+            min={0}
+            value={top}
+            disabled={disabled}
+            onChange={(e) => {
+              if (disabled) return;
+              setTop(parseInt(e.target.value, 10) || 0);
+            }}
+            className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 disabled:opacity-50"
+          />
         </div>
         <div>
           <label className="block text-sm text-[var(--muted)] mb-1">Izquierdo</label>
-          <input type="number" min={0} value={left} onChange={(e) => setLeft(parseInt(e.target.value, 10) || 0)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+          <input
+            type="number"
+            min={0}
+            value={left}
+            disabled={disabled}
+            onChange={(e) => {
+              if (disabled) return;
+              setLeft(parseInt(e.target.value, 10) || 0);
+            }}
+            className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 disabled:opacity-50"
+          />
         </div>
         <div>
           <label className="block text-sm text-[var(--muted)] mb-1">Derecho</label>
-          <input type="number" min={0} value={right} onChange={(e) => setRight(parseInt(e.target.value, 10) || 0)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+          <input
+            type="number"
+            min={0}
+            value={right}
+            disabled={disabled}
+            onChange={(e) => {
+              if (disabled) return;
+              setRight(parseInt(e.target.value, 10) || 0);
+            }}
+            className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 disabled:opacity-50"
+          />
         </div>
         <div>
           <label className="block text-sm text-[var(--muted)] mb-1">Inferior</label>
-          <input type="number" min={0} value={bottom} onChange={(e) => setBottom(parseInt(e.target.value, 10) || 0)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+          <input
+            type="number"
+            min={0}
+            value={bottom}
+            disabled={disabled}
+            onChange={(e) => {
+              if (disabled) return;
+              setBottom(parseInt(e.target.value, 10) || 0);
+            }}
+            className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 disabled:opacity-50"
+          />
         </div>
       </div>
-      <button type="button" onClick={onRestore} className="mt-3 rounded-lg bg-[var(--card)] border border-[var(--border)] px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--card-hover)]">
+      <button
+        type="button"
+        onClick={onRestore}
+        disabled={disabled}
+        className="mt-3 rounded-lg bg-[var(--card)] border border-[var(--border)] px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--card-hover)] disabled:opacity-50"
+      >
         Restaurar valores por defecto (45 px)
       </button>
     </>
@@ -185,33 +233,80 @@ export default function ConfigPresupuestosFacturasPage() {
           <h2 className="font-semibold text-[var(--foreground)] mb-4">Presupuestos</h2>
           <p className="text-sm text-[var(--muted)] mb-4">Márgenes, formato de página, imagen de fondo y campos del PDF de presupuestos.</p>
 
-          <h3 className="font-medium text-[var(--foreground)] mb-2">Márgenes del PDF (píxeles)</h3>
-          <p className="text-xs text-[var(--muted)] mb-2">Separación desde el borde hasta el contenido.</p>
-          {renderMarginFields(budgetMarginTop, setBudgetMarginTop, budgetMarginLeft, setBudgetMarginLeft, budgetMarginRight, setBudgetMarginRight, budgetMarginBottom, setBudgetMarginBottom, () => {
-            setBudgetMarginTop(DEFAULT_MARGIN);
-            setBudgetMarginLeft(DEFAULT_MARGIN);
-            setBudgetMarginRight(DEFAULT_MARGIN);
-            setBudgetMarginBottom(DEFAULT_MARGIN);
-          })}
-
           <h3 className="font-medium text-[var(--foreground)] mt-6 mb-2">Formato de exportación</h3>
           <select value={budgetFormat} onChange={(e) => setBudgetFormat(e.target.value)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2">
-            {PAGE_FORMATS.map((f) => <option key={f} value={f}>{f === 'LETTER' ? 'Carta' : f === 'A4' ? 'A4' : 'Ticket'}</option>)}
+            {PAGE_FORMATS.map((f) => (
+              <option key={f} value={f}>
+                {f === 'LETTER' ? 'Carta' : f === 'A4' ? 'A4' : 'Ticket (58mm)'}
+              </option>
+            ))}
           </select>
+
+          <h3 className="font-medium text-[var(--foreground)] mb-2">Márgenes del PDF (píxeles)</h3>
+          <p className="text-xs text-[var(--muted)] mb-2">Separación desde el borde hasta el contenido.</p>
+          {renderMarginFields(
+            budgetMarginTop,
+            setBudgetMarginTop,
+            budgetMarginLeft,
+            setBudgetMarginLeft,
+            budgetMarginRight,
+            setBudgetMarginRight,
+            budgetMarginBottom,
+            setBudgetMarginBottom,
+            () => {
+              setBudgetMarginTop(DEFAULT_MARGIN);
+              setBudgetMarginLeft(DEFAULT_MARGIN);
+              setBudgetMarginRight(DEFAULT_MARGIN);
+              setBudgetMarginBottom(DEFAULT_MARGIN);
+            },
+            isTicketBudget,
+          )}
 
           <h3 className="font-medium text-[var(--foreground)] mt-6 mb-2">Imagen de fondo</h3>
           <div className="flex flex-wrap items-start gap-3">
             {budgetBackgroundUrl && (
               <div className="relative">
                 <img src={budgetBackgroundUrl} alt="Fondo presupuestos" className="h-16 w-auto max-w-[200px] object-contain rounded border border-[var(--border)] bg-[var(--background)]" />
-                <button type="button" onClick={async () => { if (!companyId) return; try { await configApi.update(companyId, { budgetBackgroundImageUrl: null }); setBudgetBackgroundUrl(''); showActionModal('Imagen quitada', 'La imagen de fondo de presupuestos se ha eliminado.', 'success'); } catch (e) { showActionModal('Error', e instanceof Error ? e.message : 'Error', 'error'); } }} className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[var(--destructive)] text-white text-xs leading-none" title="Quitar">×</button>
+                <button
+                  type="button"
+                  disabled={isTicketBudget}
+                  onClick={async () => {
+                    if (isTicketBudget || !companyId) return;
+                    try {
+                      await configApi.update(companyId, { budgetBackgroundImageUrl: null });
+                      setBudgetBackgroundUrl('');
+                      showActionModal('Imagen quitada', 'La imagen de fondo de presupuestos se ha eliminado.', 'success');
+                    } catch (e) {
+                      showActionModal('Error', e instanceof Error ? e.message : 'Error', 'error');
+                    }
+                  }}
+                  className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[var(--destructive)] text-white text-xs leading-none disabled:opacity-50"
+                  title="Quitar"
+                >
+                  ×
+                </button>
               </div>
             )}
             <div>
               <input ref={budgetBgInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload('budgetBg', f); }} />
-              <button type="button" onClick={() => budgetBgInputRef.current?.click()} disabled={uploadingField === 'budgetBg'} className="rounded-lg bg-[var(--secondary)] text-white px-3 py-2 text-sm disabled:opacity-50">{uploadingField === 'budgetBg' ? 'Subiendo...' : 'Subir imagen'}</button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isTicketBudget) return;
+                  budgetBgInputRef.current?.click();
+                }}
+                disabled={isTicketBudget || uploadingField === 'budgetBg'}
+                className="rounded-lg bg-[var(--secondary)] text-white px-3 py-2 text-sm disabled:opacity-50"
+              >
+                {uploadingField === 'budgetBg' ? 'Subiendo...' : 'Subir imagen'}
+              </button>
             </div>
           </div>
+          {isTicketBudget && (
+            <p className="text-xs text-[var(--muted)] mt-2">
+              Al seleccionar Ticket, se usan valores por defecto para impresión (sin imagen de fondo y con márgenes optimizados).
+            </p>
+          )}
 
           <h3 className="font-medium text-[var(--foreground)] mt-6 mb-2">Campos del documento</h3>
           <p className="text-xs text-[var(--muted)] mb-2">Visible u obligatorio en el presupuesto.</p>
@@ -260,19 +355,34 @@ export default function ConfigPresupuestosFacturasPage() {
             </p>
           </div>
 
-          <h3 className="font-medium text-[var(--foreground)] mb-2">Márgenes del PDF (píxeles)</h3>
-          <p className="text-xs text-[var(--muted)] mb-2">Separación desde el borde hasta el contenido.</p>
-          {renderMarginFields(invoiceMarginTop, setInvoiceMarginTop, invoiceMarginLeft, setInvoiceMarginLeft, invoiceMarginRight, setInvoiceMarginRight, invoiceMarginBottom, setInvoiceMarginBottom, () => {
-            setInvoiceMarginTop(DEFAULT_MARGIN);
-            setInvoiceMarginLeft(DEFAULT_MARGIN);
-            setInvoiceMarginRight(DEFAULT_MARGIN);
-            setInvoiceMarginBottom(DEFAULT_MARGIN);
-          })}
-
           <h3 className="font-medium text-[var(--foreground)] mt-6 mb-2">Formato de exportación</h3>
           <select value={invoiceFormat} onChange={(e) => setInvoiceFormat(e.target.value)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2">
-            {PAGE_FORMATS.map((f) => <option key={f} value={f}>{f === 'LETTER' ? 'Carta' : f === 'A4' ? 'A4' : 'Ticket'}</option>)}
+            {PAGE_FORMATS.map((f) => (
+              <option key={f} value={f}>
+                {f === 'LETTER' ? 'Carta' : f === 'A4' ? 'A4' : 'Ticket (58mm)'}
+              </option>
+            ))}
           </select>
+
+          <h3 className="font-medium text-[var(--foreground)] mb-2">Márgenes del PDF (píxeles)</h3>
+          <p className="text-xs text-[var(--muted)] mb-2">Separación desde el borde hasta el contenido.</p>
+          {renderMarginFields(
+            invoiceMarginTop,
+            setInvoiceMarginTop,
+            invoiceMarginLeft,
+            setInvoiceMarginLeft,
+            invoiceMarginRight,
+            setInvoiceMarginRight,
+            invoiceMarginBottom,
+            setInvoiceMarginBottom,
+            () => {
+              setInvoiceMarginTop(DEFAULT_MARGIN);
+              setInvoiceMarginLeft(DEFAULT_MARGIN);
+              setInvoiceMarginRight(DEFAULT_MARGIN);
+              setInvoiceMarginBottom(DEFAULT_MARGIN);
+            },
+            isTicketInvoice,
+          )}
 
           <h3 className="font-medium text-[var(--foreground)] mt-6 mb-2">Facturación sólo en bolívares</h3>
           <p className="text-xs text-[var(--muted)] mb-2">Si está activo, el PDF de la factura mostrará únicamente montos en bolívares (usando la tasa del día si la factura tiene USD/EUR). No cambia lo que se ve en pantalla al crear o consultar facturas.</p>
@@ -293,14 +403,46 @@ export default function ConfigPresupuestosFacturasPage() {
             {invoiceBackgroundUrl && (
               <div className="relative">
                 <img src={invoiceBackgroundUrl} alt="Fondo facturas" className="h-16 w-auto max-w-[200px] object-contain rounded border border-[var(--border)] bg-[var(--background)]" />
-                <button type="button" onClick={async () => { if (!companyId) return; try { await configApi.update(companyId, { invoiceBackgroundImageUrl: null }); setInvoiceBackgroundUrl(''); showActionModal('Imagen quitada', 'La imagen de fondo de facturas se ha eliminado.', 'success'); } catch (e) { showActionModal('Error', e instanceof Error ? e.message : 'Error', 'error'); } }} className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[var(--destructive)] text-white text-xs leading-none" title="Quitar">×</button>
+                <button
+                  type="button"
+                  disabled={isTicketInvoice}
+                  onClick={async () => {
+                    if (isTicketInvoice || !companyId) return;
+                    try {
+                      await configApi.update(companyId, { invoiceBackgroundImageUrl: null });
+                      setInvoiceBackgroundUrl('');
+                      showActionModal('Imagen quitada', 'La imagen de fondo de facturas se ha eliminado.', 'success');
+                    } catch (e) {
+                      showActionModal('Error', e instanceof Error ? e.message : 'Error', 'error');
+                    }
+                  }}
+                  className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[var(--destructive)] text-white text-xs leading-none disabled:opacity-50"
+                  title="Quitar"
+                >
+                  ×
+                </button>
               </div>
             )}
             <div>
               <input ref={invoiceBgInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload('invoiceBg', f); }} />
-              <button type="button" onClick={() => invoiceBgInputRef.current?.click()} disabled={uploadingField === 'invoiceBg'} className="rounded-lg bg-[var(--secondary)] text-white px-3 py-2 text-sm disabled:opacity-50">{uploadingField === 'invoiceBg' ? 'Subiendo...' : 'Subir imagen'}</button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isTicketInvoice) return;
+                  invoiceBgInputRef.current?.click();
+                }}
+                disabled={isTicketInvoice || uploadingField === 'invoiceBg'}
+                className="rounded-lg bg-[var(--secondary)] text-white px-3 py-2 text-sm disabled:opacity-50"
+              >
+                {uploadingField === 'invoiceBg' ? 'Subiendo...' : 'Subir imagen'}
+              </button>
             </div>
           </div>
+          {isTicketInvoice && (
+            <p className="text-xs text-[var(--muted)] mt-2">
+              Al seleccionar Ticket, se usan valores por defecto para impresión (sin imagen de fondo y con márgenes optimizados).
+            </p>
+          )}
 
           <h3 className="font-medium text-[var(--foreground)] mt-6 mb-2">Campos del documento</h3>
           <p className="text-xs text-[var(--muted)] mb-2">Visible u obligatorio en la factura.</p>
