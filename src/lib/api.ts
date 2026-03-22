@@ -101,6 +101,8 @@ export const productsApi = {
   get: (id: string, companyId: string) => api<unknown>(`/products/${id}`, { params: { companyId } }),
   create: (companyId: string, data: { code: string; name: string; description?: string; exentoIva?: boolean; isService?: boolean; salePrice?: number }) =>
     api<unknown>('/products', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  update: (id: string, companyId: string, data: { name?: string; description?: string | null; salePrice?: number | null }) =>
+    api<unknown>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data), params: { companyId } }),
   delete: (id: string, companyId: string) =>
     api<unknown>(`/products/${id}`, { method: 'DELETE', params: { companyId } }),
 };
