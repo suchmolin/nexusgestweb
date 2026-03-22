@@ -11,6 +11,44 @@ function getCompanyId(user: { role: string; companyId: string | null }, selected
   return user.role === 'SUPER_ADMIN' ? selected : user.companyId;
 }
 
+function formatProductPrice(value: unknown): string {
+  if (value == null || value === '') return '—';
+  const n = typeof value === 'number' ? value : Number(value);
+  if (Number.isNaN(n)) return '—';
+  return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function IconInfo() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
+function IconPencil() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+      <path d="m15 5 4 4" />
+    </svg>
+  );
+}
+
+function IconTrash() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" x2="10" y1="11" y2="17" />
+      <line x1="14" x2="14" y1="11" y2="17" />
+    </svg>
+  );
+}
+
 export default function InventarioPage() {
   const { user } = useAuth();
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
@@ -58,8 +96,6 @@ export default function InventarioPage() {
   const [addSalePrice, setAddSalePrice] = useState('');
   const [addSaving, setAddSaving] = useState(false);
 
-  const [searchQ, setSearchQ] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [ingresoProduct, setIngresoProduct] = useState<any | null>(null);
   const [ingresoQty, setIngresoQty] = useState('');
   const [ingresoUnitCost, setIngresoUnitCost] = useState('');
@@ -86,6 +122,12 @@ export default function InventarioPage() {
   const [movementFilterType, setMovementFilterType] = useState('');
   const [deleteProduct, setDeleteProduct] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const [editProduct, setEditProduct] = useState<any | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editSalePrice, setEditSalePrice] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   const [actionModal, setActionModal] = useState<{ open: boolean; title: string; message: string; variant: ActionModalVariant }>({ open: false, title: '', message: '', variant: 'info' });
   const showActionModal = (title: string, message: string, variant: ActionModalVariant = 'info') => setActionModal({ open: true, title, message, variant });
@@ -116,7 +158,15 @@ export default function InventarioPage() {
     productsApi.list(companyId, page, limit, filterCode || undefined, filterName || undefined, filterFrom || undefined).then(setProducts).catch(() => {});
   }, [companyId, page, limit, filterCode, filterName, filterFrom]);
 
-  useEffect(() => { if (subTab === 'consulta') loadProducts(); }, [subTab, loadProducts]);
+  useEffect(() => {
+    if (subTab === 'consulta' || subTab === 'ingreso' || subTab === 'egreso') loadProducts();
+  }, [subTab, loadProducts]);
+
+  useEffect(() => {
+    if (subTab !== 'ingreso') setIngresoProduct(null);
+    if (subTab !== 'egreso') setEgresoProduct(null);
+    if (subTab !== 'consulta') setEditProduct(null);
+  }, [subTab]);
 
   const handleAddProduct = async () => {
     if (!companyId || !code.trim() || !name.trim()) return;
@@ -148,12 +198,6 @@ export default function InventarioPage() {
     } finally {
       setAddSaving(false);
     }
-  };
-
-  const handleSearch = async () => {
-    if (!companyId || !searchQ.trim()) return;
-    const list = await productsApi.search(companyId, searchQ.trim());
-    setSearchResults(list as any[]);
   };
 
   const handleIngresoSubmit = async () => {
@@ -235,6 +279,40 @@ export default function InventarioPage() {
     }
   };
 
+  const openEditProduct = (p: any) => {
+    setEditProduct(p);
+    setEditName(p.name ?? '');
+    setEditDescription(typeof p.description === 'string' ? p.description : '');
+    setEditSalePrice(p.salePrice != null && p.salePrice !== '' ? String(p.salePrice) : '');
+  };
+
+  const handleEditSave = async () => {
+    if (!companyId || !editProduct?.id) return;
+    if (!editName.trim()) {
+      showActionModal('Nombre requerido', 'Indica un nombre para el producto.', 'error');
+      return;
+    }
+    if (editProduct.isService && (!editSalePrice.trim() || Number(editSalePrice) <= 0)) {
+      showActionModal('Precio requerido', 'Los servicios deben tener un precio de venta mayor a cero.', 'error');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await productsApi.update(editProduct.id, companyId, {
+        name: editName.trim(),
+        description: editDescription.trim() || null,
+        salePrice: editSalePrice.trim() === '' ? null : Number(editSalePrice),
+      });
+      setEditProduct(null);
+      loadProducts();
+      showActionModal('Producto actualizado', 'Los cambios se guardaron correctamente.', 'success');
+    } catch (e) {
+      showActionModal('Error al guardar', e instanceof Error ? e.message : 'Error al guardar', 'error');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -309,97 +387,12 @@ export default function InventarioPage() {
             </div>
           )}
 
-          {subTab === 'ingreso' && (
-            <div className="mt-6">
-              <div className="flex gap-2 mb-4">
-                <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} placeholder="Código o nombre del producto" className="flex-1 max-w-md rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2" />
-                <button type="button" onClick={handleSearch} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2">Buscar</button>
-              </div>
-              {searchResults.length > 0 && (
-                <div className="rounded-xl border border-[var(--border)] overflow-hidden mb-4">
-                  <table className="w-full text-left">
-                    <thead className="bg-[var(--card)]"><tr><th className="p-3 font-medium">Código</th><th className="p-3 font-medium">Nombre</th><th className="p-3 font-medium">Stock</th><th className="p-3 font-medium"></th></tr></thead>
-                    <tbody>
-                      {searchResults.map((p: any) => (
-                        <tr key={p.id} className="border-t border-[var(--border)]">
-                          <td className="p-3">{p.code}</td>
-                          <td className="p-3">{p.name}</td>
-                          <td className="p-3">{p.stock}</td>
-                          <td className="p-3">
-                            <button type="button" onClick={() => { setIngresoProduct(p); setIngresoQty('1'); setIngresoUnitCost(''); setIngresoSalePrice(''); setIngresoObservation(''); }} className="rounded px-2 py-1 bg-[var(--primary)] text-white text-sm">Seleccionar</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {ingresoProduct && (
-                <div className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)] max-w-md">
-                  <p className="font-medium">{ingresoProduct.name} (Stock: {ingresoProduct.stock})</p>
-                  <div className="mt-3 space-y-2">
-                    <input type="number" min={1} value={ingresoQty} onChange={(e) => setIngresoQty(e.target.value)} placeholder="Cantidad a ingresar" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input type="number" min={0} step={0.01} value={ingresoUnitCost} onChange={(e) => setIngresoUnitCost(e.target.value)} placeholder="Costo unitario" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input type="number" min={0} step={0.01} value={ingresoSalePrice} onChange={(e) => setIngresoSalePrice(e.target.value)} placeholder="Precio de venta" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input value={ingresoObservation} onChange={(e) => setIngresoObservation(e.target.value)} placeholder="Observación (opcional)" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <div className="flex gap-2">
-                      <button type="button" onClick={handleIngresoSubmit} disabled={ingresoSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 disabled:opacity-50">Registrar ingreso</button>
-                      <button type="button" onClick={() => setIngresoProduct(null)} className="rounded-lg bg-[var(--card-hover)] px-4 py-2">Cancelar</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {subTab === 'egreso' && (
-            <div className="mt-6">
-              <div className="flex gap-2 mb-4">
-                <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} placeholder="Código o nombre del producto" className="flex-1 max-w-md rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2" />
-                <button type="button" onClick={handleSearch} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2">Buscar</button>
-              </div>
-              {searchResults.length > 0 && (
-                <div className="rounded-xl border border-[var(--border)] overflow-hidden mb-4">
-                  <table className="w-full text-left">
-                    <thead className="bg-[var(--card)]"><tr><th className="p-3 font-medium">Código</th><th className="p-3 font-medium">Nombre</th><th className="p-3 font-medium">Stock</th><th className="p-3 font-medium"></th></tr></thead>
-                    <tbody>
-                      {searchResults.map((p: any) => (
-                        <tr key={p.id} className="border-t border-[var(--border)]">
-                          <td className="p-3">{p.code}</td>
-                          <td className="p-3">{p.name}</td>
-                          <td className="p-3">{p.stock}</td>
-                          <td className="p-3">
-                            <button type="button" onClick={() => { setEgresoProduct(p); setEgresoQty(''); setEgresoReason(''); setEgresoObservation(''); }} className="rounded px-2 py-1 bg-[var(--primary)] text-white text-sm">Seleccionar</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {egresoProduct && (
-                <div className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)] max-w-md">
-                  <p className="font-medium">{egresoProduct.name} (Stock: {egresoProduct.stock})</p>
-                  <div className="mt-3 space-y-2">
-                    <input type="number" min={1} value={egresoQty} onChange={(e) => setEgresoQty(e.target.value)} placeholder="Cantidad a egresar *" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input value={egresoReason} onChange={(e) => setEgresoReason(e.target.value)} placeholder="Motivo del egreso *" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <input value={egresoObservation} onChange={(e) => setEgresoObservation(e.target.value)} placeholder="Observación (opcional)" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                    <div className="flex gap-2">
-                      <button type="button" onClick={handleEgresoSubmit} disabled={egresoSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 disabled:opacity-50">Registrar egreso</button>
-                      <button type="button" onClick={() => setEgresoProduct(null)} className="rounded-lg bg-[var(--card-hover)] px-4 py-2">Cancelar</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {subTab === 'consulta' && (
+          {(subTab === 'consulta' || subTab === 'ingreso' || subTab === 'egreso') && (
             <div className="mt-6">
               <div className="flex flex-wrap gap-3 mb-4">
-                <input value={filterCode} onChange={(e) => setFilterCode(e.target.value)} placeholder="Código" className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2 w-32" />
-                <input value={filterName} onChange={(e) => setFilterName(e.target.value)} placeholder="Nombre" className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2 w-40" />
-                <input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} placeholder="Desde" className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2" />
+                <input value={filterCode} onChange={(e) => { setFilterCode(e.target.value); setPage(1); }} placeholder="Código" className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2 w-32" />
+                <input value={filterName} onChange={(e) => { setFilterName(e.target.value); setPage(1); }} placeholder="Nombre" className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2 w-40" />
+                <input type="date" value={filterFrom} onChange={(e) => { setFilterFrom(e.target.value); setPage(1); }} placeholder="Desde" className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-2" />
                 <select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-2 py-2">
                   <option value={10}>10</option>
                   <option value={25}>25</option>
@@ -413,6 +406,7 @@ export default function InventarioPage() {
                       <th className="p-3 font-medium">Código</th>
                       <th className="p-3 font-medium">Nombre</th>
                       <th className="p-3 font-medium">Stock</th>
+                      <th className="p-3 font-medium">Precio</th>
                       <th className="p-3 font-medium">Acciones</th>
                     </tr>
                   </thead>
@@ -422,9 +416,68 @@ export default function InventarioPage() {
                         <td className="p-3">{p.code}</td>
                         <td className="p-3">{p.name}</td>
                         <td className="p-3">{p.stock}</td>
-                        <td className="p-3 flex gap-1">
-                          <button type="button" onClick={() => openInfo(p)} className="rounded px-2 py-1 text-sm bg-[var(--card-hover)]">Info</button>
-                          <button type="button" onClick={() => setDeleteProduct(p)} className="rounded px-2 py-1 text-sm bg-[var(--destructive)] text-white">Eliminar</button>
+                        <td className="p-3 tabular-nums">{formatProductPrice(p.salePrice)}</td>
+                        <td className="p-3 flex flex-wrap gap-1">
+                          {subTab === 'consulta' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openInfo(p)}
+                                className="inline-flex items-center justify-center rounded-md p-1.5 text-[var(--foreground)] bg-[var(--card-hover)] hover:opacity-90"
+                                title="Información"
+                                aria-label="Información del producto"
+                              >
+                                <IconInfo />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEditProduct(p)}
+                                className="inline-flex items-center justify-center rounded-md p-1.5 text-[var(--foreground)] bg-[var(--card-hover)] hover:opacity-90"
+                                title="Editar"
+                                aria-label="Editar producto"
+                              >
+                                <IconPencil />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteProduct(p)}
+                                className="inline-flex items-center justify-center rounded-md p-1.5 text-white bg-[var(--destructive)] hover:opacity-90"
+                                title="Eliminar"
+                                aria-label="Eliminar producto"
+                              >
+                                <IconTrash />
+                              </button>
+                            </>
+                          )}
+                          {subTab === 'ingreso' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIngresoProduct(p);
+                                setIngresoQty('1');
+                                setIngresoUnitCost('');
+                                setIngresoSalePrice('');
+                                setIngresoObservation('');
+                              }}
+                              className="rounded px-2 py-1 text-sm bg-[var(--primary)] text-white"
+                            >
+                              Ingresar
+                            </button>
+                          )}
+                          {subTab === 'egreso' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEgresoProduct(p);
+                                setEgresoQty('');
+                                setEgresoReason('');
+                                setEgresoObservation('');
+                              }}
+                              className="rounded px-2 py-1 text-sm bg-[var(--primary)] text-white"
+                            >
+                              Egreso
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -440,6 +493,37 @@ export default function InventarioPage() {
                   <button type="button" onClick={() => setPage((p) => p + 1)} disabled={page * limit >= products.total} className="rounded px-2 py-1 bg-[var(--card)] disabled:opacity-50">Siguiente</button>
                 </div>
               </div>
+
+              {subTab === 'ingreso' && ingresoProduct && (
+                <div className="mt-6 p-5 rounded-xl bg-[var(--card)] border border-[var(--border)] max-w-md">
+                  <p className="font-medium">{ingresoProduct.name} (Stock: {ingresoProduct.stock})</p>
+                  <div className="mt-3 space-y-2">
+                    <input type="number" min={1} value={ingresoQty} onChange={(e) => setIngresoQty(e.target.value)} placeholder="Cantidad a ingresar" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                    <input type="number" min={0} step={0.01} value={ingresoUnitCost} onChange={(e) => setIngresoUnitCost(e.target.value)} placeholder="Costo unitario" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                    <input type="number" min={0} step={0.01} value={ingresoSalePrice} onChange={(e) => setIngresoSalePrice(e.target.value)} placeholder="Precio de venta" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                    <input value={ingresoObservation} onChange={(e) => setIngresoObservation(e.target.value)} placeholder="Observación (opcional)" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                    <div className="flex gap-2">
+                      <button type="button" onClick={handleIngresoSubmit} disabled={ingresoSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 disabled:opacity-50">Registrar ingreso</button>
+                      <button type="button" onClick={() => setIngresoProduct(null)} className="rounded-lg bg-[var(--card-hover)] px-4 py-2">Cancelar</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {subTab === 'egreso' && egresoProduct && (
+                <div className="mt-6 p-5 rounded-xl bg-[var(--card)] border border-[var(--border)] max-w-md">
+                  <p className="font-medium">{egresoProduct.name} (Stock: {egresoProduct.stock})</p>
+                  <div className="mt-3 space-y-2">
+                    <input type="number" min={1} value={egresoQty} onChange={(e) => setEgresoQty(e.target.value)} placeholder="Cantidad a egresar *" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                    <input value={egresoReason} onChange={(e) => setEgresoReason(e.target.value)} placeholder="Motivo del egreso *" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                    <input value={egresoObservation} onChange={(e) => setEgresoObservation(e.target.value)} placeholder="Observación (opcional)" className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                    <div className="flex gap-2">
+                      <button type="button" onClick={handleEgresoSubmit} disabled={egresoSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 disabled:opacity-50">Registrar egreso</button>
+                      <button type="button" onClick={() => setEgresoProduct(null)} className="rounded-lg bg-[var(--card-hover)] px-4 py-2">Cancelar</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -474,6 +558,44 @@ export default function InventarioPage() {
                   </table>
                 </div>
                 <button type="button" onClick={() => setInfoProduct(null)} className="mt-4 rounded-lg bg-[var(--card-hover)] px-4 py-2">Cerrar</button>
+              </div>
+            </div>
+          )}
+
+          {editProduct && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditProduct(null)}>
+              <div className="bg-[var(--card)] rounded-xl p-6 max-w-md w-full border border-[var(--border)]" onClick={(e) => e.stopPropagation()}>
+                <h3 className="font-semibold text-[var(--foreground)]">Editar producto</h3>
+                <p className="text-sm text-[var(--muted)] mt-1">{editProduct.code}</p>
+                <div className="mt-4 space-y-3">
+                  <div>
+                    <label className="block text-sm text-[var(--foreground)] mb-1">Nombre</label>
+                    <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-[var(--foreground)] mb-1">Descripción</label>
+                    <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={3} className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-[var(--foreground)] mb-1">Precio de venta actual</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={editSalePrice}
+                      onChange={(e) => setEditSalePrice(e.target.value)}
+                      placeholder="Sin precio"
+                      className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 tabular-nums"
+                    />
+                    {editProduct.isService && <p className="text-xs text-[var(--muted)] mt-1">Servicio: el precio es obligatorio.</p>}
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-6">
+                  <button type="button" onClick={handleEditSave} disabled={editSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 disabled:opacity-50">
+                    {editSaving ? 'Guardando...' : 'Guardar'}
+                  </button>
+                  <button type="button" onClick={() => setEditProduct(null)} className="rounded-lg bg-[var(--card-hover)] px-4 py-2">Cancelar</button>
+                </div>
               </div>
             </div>
           )}
