@@ -7,6 +7,7 @@ import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 import { IconSearch, IconX, IconEye, IconPencil, IconCopy, IconTrash } from '@/components/Icons';
 import { hasSectionAccess } from '@/lib/role-modules';
 import { SUPERADMIN_COMPANY_STORAGE_KEY } from '@/lib/constants';
+import { printPdfBlob } from '@/lib/printPdf';
 
 const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', 'ZELLE'];
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
@@ -610,9 +611,7 @@ export default function PresupuestosPage() {
 
   const handlePreviewPrint = () => {
     if (!previewModal) return;
-    const w = window.open(previewModal.url, '_blank', 'noopener,noreferrer');
-    if (w) setTimeout(() => { w.print(); }, 500);
-    else showActionModal('Impresión', 'Permite ventanas emergentes para imprimir.', 'info');
+    printPdfBlob(previewModal.blob);
   };
 
   const handleDelete = async (id: string) => {

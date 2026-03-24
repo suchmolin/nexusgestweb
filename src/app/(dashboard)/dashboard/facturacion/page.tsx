@@ -7,6 +7,7 @@ import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 import { IconSearch, IconX } from '@/components/Icons';
 import { hasSectionAccess } from '@/lib/role-modules';
 import { SUPERADMIN_COMPANY_STORAGE_KEY } from '@/lib/constants';
+import { printPdfBlob } from '@/lib/printPdf';
 
 const PAYMENT_OPTIONS = ['EFECTIVO', 'PAGO_MOVIL', 'TRANSFERENCIA', 'BINANCE', 'ZELLE'];
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'BS'];
@@ -938,9 +939,7 @@ export default function FacturacionPage() {
 
   const handleInvoicePreviewPrint = () => {
     if (!invoicePreviewModal) return;
-    const w = window.open(invoicePreviewModal.url, '_blank', 'noopener,noreferrer');
-    if (w) setTimeout(() => { w.print(); }, 500);
-    else showActionModal('Impresión', 'Permite ventanas emergentes para imprimir.', 'info');
+    printPdfBlob(invoicePreviewModal.blob);
   };
 
   const handleDownloadInvoicePdf = async (id: string) => {
@@ -962,10 +961,7 @@ export default function FacturacionPage() {
     if (!companyId || !savedInvoiceModal) return;
     try {
       const blob = await invoicesApi.getPdfBlob(savedInvoiceModal.invoiceId, companyId);
-      const url = URL.createObjectURL(blob);
-      const w = window.open(url, '_blank', 'noopener,noreferrer');
-      if (w) setTimeout(() => { w.print(); URL.revokeObjectURL(url); }, 800);
-      else { URL.revokeObjectURL(url); showActionModal('Impresión', 'Permite ventanas emergentes para imprimir.', 'info'); }
+      printPdfBlob(blob);
     } catch (e) {
       showActionModal('Error al imprimir', e instanceof Error ? e.message : 'Error al generar PDF', 'error');
     }
