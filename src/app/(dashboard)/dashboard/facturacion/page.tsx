@@ -543,13 +543,30 @@ export default function FacturacionPage() {
   const refreshItemsStock = useCallback(async (cid: string, draftItems: InvoiceItemRow[]): Promise<InvoiceItemRow[]> => {
     if (!draftItems.length) return draftItems;
     const productIds = [...new Set(draftItems.map((i) => i.productId))];
-    const productPromises = productIds.map((id) => productsApi.get(id, cid).then((p: any) => ({ id, stock: p?.stock != null ? Number(p.stock) : undefined })).catch(() => ({ id, stock: undefined })));
+    const productPromises = productIds.map((id) =>
+      productsApi
+        .get(id, cid)
+        .then((p: any) => ({
+          id,
+          stock: p?.stock != null ? Number(p.stock) : undefined,
+          isService: !!p?.isService,
+        }))
+        .catch(() => ({ id, stock: undefined as number | undefined, isService: undefined as boolean | undefined })),
+    );
     const results = await Promise.all(productPromises);
-    const stockByProductId = new Map(results.map((r) => [r.id, r.stock]));
-    return draftItems.map((item) => ({
-      ...item,
-      stock: stockByProductId.get(item.productId) ?? item.stock,
-    }));
+    const metaByProductId = new Map(results.map((r) => [r.id, r]));
+    return draftItems.map((item) => {
+      const meta = metaByProductId.get(item.productId);
+      const isService = meta?.isService ?? !!item.isService;
+      if (isService) {
+        return { ...item, isService: true, stock: undefined };
+      }
+      return {
+        ...item,
+        isService: false,
+        stock: meta?.stock ?? item.stock,
+      };
+    });
   }, []);
 
   const loadDraftIntoForm = useCallback(async (draft: InvoiceDraft) => {
@@ -879,16 +896,20 @@ export default function FacturacionPage() {
         email: client?.email ?? '',
       });
       setItems(
-        budgetItems.map((it: any, idx: number) => ({
-          productId: it.productId,
-          code: it.product?.code ?? '',
-          name: it.product?.name ?? '',
-          quantity: Number(it.quantity) || 1,
-          unitPrice: Number(it.unitPrice) ?? 0,
-          sortOrder: it.sortOrder ?? idx + 1,
-          exentoIva: !!it.exentoIva,
-          stock: it.product?.stock != null ? Number(it.product.stock) : undefined,
-        }))
+        budgetItems.map((it: any, idx: number) => {
+          const isService = !!it.product?.isService;
+          return {
+            productId: it.productId,
+            code: it.product?.code ?? '',
+            name: it.product?.name ?? '',
+            quantity: Number(it.quantity) || 1,
+            unitPrice: Number(it.unitPrice) ?? 0,
+            sortOrder: it.sortOrder ?? idx + 1,
+            exentoIva: !!it.exentoIva,
+            isService,
+            stock: isService ? undefined : it.product?.stock != null ? Number(it.product.stock) : undefined,
+          };
+        }),
       );
       setIvaPercent(Number(fullBudget.ivaPercent) ?? 12);
       setRateOfDay(String(fullBudget.rateOfDay ?? ''));
@@ -1188,8 +1209,9 @@ export default function FacturacionPage() {
                         const unitBsFromEur = eurRateNum ? (it.unitPrice ?? 0) * eurRateNum : 0;
                         const sinStock = !it.isService && it.stock != null && (it.quantity ?? 0) > it.stock;
                         return (
-                        <tr key={it.productId} className={`border-t border-[var(--border)] ${sinStock ? 'bg-red-500/15 border-l-4 border-l-red-500' : ''}`}>
-                          <td className="p-2">{it.code}</td><td className="p-2">{it.name}</td>
+                        <tr key={it.productId} className={`border-t border-[var(--border)] align-top ${sinStock ? 'bg-red-500/15 border-l-4 border-l-red-500' : ''}`}>
+                          <td className="p-2 whitespace-nowrap">{it.code}</td>
+                          <td className="p-2 min-w-[8rem] max-w-[28rem] break-words">{it.name}</td>
                           <td className="p-2">
                             <input
                               type="number"
