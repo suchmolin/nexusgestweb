@@ -946,9 +946,9 @@ export default function PresupuestosPage() {
                         const unitBsFromUsd = usdRateNum ? (it.unitPrice ?? 0) * usdRateNum : 0;
                         const unitBsFromEur = eurRateNum ? (it.unitPrice ?? 0) * eurRateNum : 0;
                         return (
-                        <tr key={it.productId} className="border-t border-[var(--border)]">
-                          <td className="p-2">{it.code}</td>
-                          <td className="p-2">{it.name}</td>
+                        <tr key={it.productId} className="border-t border-[var(--border)] align-top">
+                          <td className="p-2 whitespace-nowrap">{it.code}</td>
+                          <td className="p-2 min-w-[8rem] max-w-[28rem] break-words">{it.name}</td>
                           <td className="p-2">
                             <input
                               type="number"
@@ -1313,9 +1313,9 @@ export default function PresupuestosPage() {
                             const unitBsFromUsd = usdRateNum ? (it.unitPrice ?? 0) * usdRateNum : 0;
                             const unitBsFromEur = eurRateNum ? (it.unitPrice ?? 0) * eurRateNum : 0;
                             return (
-                              <tr key={it.productId} className="border-t border-[var(--border)]">
-                                <td className="p-2">{it.code}</td>
-                                <td className="p-2">{it.name}</td>
+                              <tr key={it.productId} className="border-t border-[var(--border)] align-top">
+                                <td className="p-2 whitespace-nowrap">{it.code}</td>
+                                <td className="p-2 min-w-[8rem] max-w-[28rem] break-words">{it.name}</td>
                                 <td className="p-2">
                                   <input
                                     type="number"
