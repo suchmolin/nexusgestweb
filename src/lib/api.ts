@@ -80,6 +80,8 @@ export const configApi = {
 export const clientsApi = {
   search: (companyId: string, rifCedula: string) =>
     api<unknown | null>('/clients/search', { params: { companyId, rifCedula } }),
+  searchMany: (companyId: string, q: string) =>
+    api<unknown[]>('/clients/search', { params: { companyId, q } }),
   list: (companyId: string, page?: number, limit?: number, search?: string) =>
     api<{ items: unknown[]; total: number }>('/clients', {
       params: { companyId, ...(page && { page: String(page) }), ...(limit && { limit: String(limit) }), ...(search && { search }) },

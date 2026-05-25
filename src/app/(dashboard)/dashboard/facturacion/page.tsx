@@ -193,6 +193,13 @@ export default function FacturacionPage() {
   const [clientSearchResult, setClientSearchResult] = useState<any | 'loading' | 'not-found'>(null);
   const [clientForm, setClientForm] = useState<{ name: string; address: string; rifCedula: string; phone: string; email: string }>({ name: '', address: '', rifCedula: '', phone: '', email: '' });
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [clientSearchModalOpen, setClientSearchModalOpen] = useState(false);
+  const [clientSearchModalQuery, setClientSearchModalQuery] = useState('');
+  const [clientSearchModalResults, setClientSearchModalResults] = useState<any[]>([]);
+  const [clientSearchModalHighlightedIndex, setClientSearchModalHighlightedIndex] = useState(0);
+  const [clientSearchModalLoading, setClientSearchModalLoading] = useState(false);
+  const clientSearchModalDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clientSearchModalInputRef = useRef<HTMLInputElement>(null);
   const [productCodeInput, setProductCodeInput] = useState('');
   const [items, setItems] = useState<InvoiceItemRow[]>([]);
   const [productSearchModalOpen, setProductSearchModalOpen] = useState(false);
@@ -379,13 +386,94 @@ export default function FacturacionPage() {
       const found = await clientsApi.search(companyId, clientRif.trim()) as any;
       setClientSearchResult(found ?? 'not-found');
       if (found) {
-        setSelectedClientId(found.id);
-        setClientForm({ name: found.name, address: found.address ?? '', rifCedula: found.rifCedula, phone: found.phone ?? '', email: found.email ?? '' });
+        applyClient(found);
       } else {
         setSelectedClientId(null);
         setClientForm({ name: '', address: '', rifCedula: clientRif.trim(), phone: '', email: '' });
       }
     } catch { setClientSearchResult(null); }
+  };
+
+  const applyClient = (client: { id: string; name: string; address?: string; rifCedula: string; phone?: string; email?: string }) => {
+    setClientRif(client.rifCedula);
+    setClientSearchResult(client);
+    setSelectedClientId(client.id);
+    setClientForm({
+      name: client.name,
+      address: client.address ?? '',
+      rifCedula: client.rifCedula,
+      phone: client.phone ?? '',
+      email: client.email ?? '',
+    });
+  };
+
+  const handleClientRifKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter' || !clientRif.trim()) return;
+    e.preventDefault();
+    handleSearchClient();
+  };
+
+  useEffect(() => {
+    if (!clientSearchModalOpen || !companyId) return;
+    if (!clientSearchModalQuery.trim()) {
+      setClientSearchModalResults([]);
+      return;
+    }
+    if (clientSearchModalDebounceRef.current) clearTimeout(clientSearchModalDebounceRef.current);
+    clientSearchModalDebounceRef.current = setTimeout(() => {
+      setClientSearchModalLoading(true);
+      clientsApi.searchMany(companyId, clientSearchModalQuery.trim()).then((list) => {
+        setClientSearchModalResults((list as any[]) || []);
+        setClientSearchModalHighlightedIndex(0);
+      }).catch(() => setClientSearchModalResults([])).finally(() => setClientSearchModalLoading(false));
+    }, PRODUCT_SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (clientSearchModalDebounceRef.current) clearTimeout(clientSearchModalDebounceRef.current);
+    };
+  }, [clientSearchModalOpen, clientSearchModalQuery, companyId]);
+
+  const openClientSearchModal = () => {
+    setClientSearchModalOpen(true);
+    setClientSearchModalQuery('');
+    setClientSearchModalResults([]);
+    setClientSearchModalHighlightedIndex(0);
+    setTimeout(() => clientSearchModalInputRef.current?.focus(), 100);
+  };
+
+  const closeClientSearchModal = () => {
+    setClientSearchModalOpen(false);
+    setClientSearchModalQuery('');
+    setClientSearchModalResults([]);
+  };
+
+  const selectClientFromSearch = (client: any) => {
+    applyClient(client);
+    closeClientSearchModal();
+  };
+
+  const handleClientSearchModalKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeClientSearchModal();
+      return;
+    }
+    if (clientSearchModalResults.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setClientSearchModalHighlightedIndex((i) => Math.min(i + 1, clientSearchModalResults.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setClientSearchModalHighlightedIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const client = clientSearchModalResults[clientSearchModalHighlightedIndex];
+        if (client) selectClientFromSearch(client);
+      }
+    }
   };
 
   const isClientNotFound = clientSearchResult === 'not-found';
@@ -1150,8 +1238,15 @@ export default function FacturacionPage() {
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Cliente</h2>
                 <div className="flex gap-2 flex-wrap">
-                  <input value={clientRif} onChange={(e) => setClientRif(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearchClient()} placeholder="RIF o Cédula" className="flex-1 min-w-[200px] rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                  <button type="button" onClick={handleSearchClient} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2">Buscar</button>
+                  <input value={clientRif} onChange={(e) => setClientRif(e.target.value)} onKeyDown={handleClientRifKeyDown} placeholder="RIF o Cédula (Enter para buscar)" className="flex-1 min-w-[200px] rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                  <button
+                    type="button"
+                    onClick={openClientSearchModal}
+                    title="Buscar cliente por RIF/Cédula, nombre o dirección"
+                    className="rounded-lg bg-[var(--background)] border border-[var(--border)] p-2 text-[var(--muted)] hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]"
+                  >
+                    <IconSearch className="w-5 h-5" />
+                  </button>
                 </div>
                 {clientSearchResult === 'loading' && <p className="mt-2 text-sm text-[var(--muted)]">Buscando...</p>}
                 {clientSearchResult && clientSearchResult !== 'loading' && clientSearchResult !== 'not-found' && (
@@ -1596,6 +1691,55 @@ export default function FacturacionPage() {
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setRegisterProductModal(false)} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 font-medium">Cancelar</button>
               <button type="button" onClick={handleRegisterProductSubmit} disabled={registerProductSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 font-medium disabled:opacity-50">{registerProductSaving ? 'Guardando...' : 'Guardar y agregar a la factura'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {clientSearchModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="client-search-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between gap-2">
+              <h2 id="client-search-modal-title" className="font-semibold text-[var(--foreground)]">Buscar cliente</h2>
+              <button type="button" onClick={closeClientSearchModal} className="p-1 rounded text-[var(--muted)] hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]" aria-label="Cerrar">
+                <IconX className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4">
+              <input
+                ref={clientSearchModalInputRef}
+                value={clientSearchModalQuery}
+                onChange={(e) => setClientSearchModalQuery(e.target.value)}
+                onKeyDown={handleClientSearchModalKeyDown}
+                placeholder="RIF/Cédula, nombre o dirección"
+                className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 mb-3"
+              />
+              {clientSearchModalLoading && <p className="text-sm text-[var(--muted)] mb-2">Buscando...</p>}
+            </div>
+            <div className="flex-1 overflow-y-auto min-h-0 px-4 pb-4">
+              {!clientSearchModalQuery.trim() && (
+                <p className="text-sm text-[var(--muted)]">Escribe RIF/Cédula, nombre o dirección para buscar.</p>
+              )}
+              {clientSearchModalQuery.trim() && clientSearchModalResults.length === 0 && !clientSearchModalLoading && (
+                <p className="text-sm text-[var(--muted)]">Sin coincidencias.</p>
+              )}
+              {clientSearchModalResults.length > 0 && (
+                <ul className="border border-[var(--border)] rounded-lg overflow-hidden">
+                  {clientSearchModalResults.map((client: any, idx: number) => (
+                    <li key={client.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); selectClientFromSearch(client); }}
+                        className={`w-full text-left px-3 py-2.5 text-sm border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--card-hover)] ${idx === clientSearchModalHighlightedIndex ? 'bg-[var(--card-hover)]' : ''}`}
+                      >
+                        <p className="font-medium">{client.name}</p>
+                        <p className="text-[var(--muted)]">RIF/Cédula: {client.rifCedula}</p>
+                        {client.address && <p className="text-[var(--muted)] truncate">{client.address}</p>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
