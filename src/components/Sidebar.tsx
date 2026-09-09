@@ -31,6 +31,8 @@ const MODULES: { key: string; label: string; href: string; superAdminOnly?: bool
   { key: 'ORDENES', label: 'Órdenes', href: '/dashboard/ordenes' },
   { key: 'CIERRE_CAJA', label: 'Cierres de caja', href: '/dashboard/cierres-caja' },
   { key: 'INVENTARIO', label: 'Inventario', href: '/dashboard/inventario' },
+  { key: 'CUENTAS_POR_COBRAR', label: 'Cuentas por cobrar', href: '/dashboard/cuentas-por-cobrar' },
+  { key: 'CUENTAS_POR_PAGAR', label: 'Cuentas por pagar', href: '/dashboard/cuentas-por-pagar' },
   { key: 'ADMINISTRACION', label: 'Administración', href: '/dashboard/administracion' },
   { key: 'LOGS', label: 'Logs', href: '/dashboard/logs' },
 ];
@@ -106,6 +108,7 @@ export function Sidebar({
   const visibleModules = MODULES.filter((m) => {
     if (m.key === 'GESTION_USUARIOS' && !isAdminOrSuperAdmin) return false;
     if (m.superAdminOnly && !isSuperAdmin) return false;
+    if (m.key === 'CONFIGURACION') return true;
     if (isSuperAdmin) return true;
     if (allowedModules === null) return true;
     return hasModuleAccess(m.key, allowedModules);

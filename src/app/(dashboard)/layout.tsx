@@ -24,6 +24,8 @@ function getModuleKeyFromPath(pathname: string): string | null {
     'ordenes': 'ORDENES',
     'cierres-caja': 'CIERRE_CAJA',
     'inventario': 'INVENTARIO',
+    'cuentas-por-cobrar': 'CUENTAS_POR_COBRAR',
+    'cuentas-por-pagar': 'CUENTAS_POR_PAGAR',
     'administracion': 'ADMINISTRACION',
     'logs': 'LOGS',
   };
@@ -85,6 +87,9 @@ export default function DashboardLayout({
       }
       return;
     }
+    if (moduleKey === 'CONFIGURACION' && pathname.includes('/configuracion/cambiar-contrasena')) {
+      return;
+    }
     if (user.role === 'SUPER_ADMIN') return;
     if (allowedModules === null) return;
     if (!hasModuleAccess(moduleKey, allowedModules)) {
@@ -127,12 +132,14 @@ export default function DashboardLayout({
 
   const moduleKey = pathname ? getModuleKeyFromPath(pathname) : null;
   const isAdminOrSuperAdmin = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+  const isPasswordConfig = !!pathname?.includes('/configuracion/cambiar-contrasena');
   const showChildren =
     moduleKey === null ||
-    (moduleKey === 'GESTION_USUARIOS' ? isAdminOrSuperAdmin : true) &&
+    isPasswordConfig ||
+    ((moduleKey === 'GESTION_USUARIOS' ? isAdminOrSuperAdmin : true) &&
     (moduleKey !== 'GESTION_USUARIOS' && user.role !== 'SUPER_ADMIN'
       ? allowedModules !== null && hasModuleAccess(moduleKey, allowedModules)
-      : true);
+      : true));
 
   return (
     <div className="flex min-h-screen bg-[var(--background)]">

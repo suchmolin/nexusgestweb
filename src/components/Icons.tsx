@@ -280,6 +280,8 @@ const ICON_MAP = {
   ORDENES: IconClipboardList,
   CIERRE_CAJA: IconReceipt,
   INVENTARIO: IconPackage,
+  CUENTAS_POR_COBRAR: IconReceipt,
+  CUENTAS_POR_PAGAR: IconClipboardList,
   ADMINISTRACION: IconBarChart,
   LOGS: IconScrollText,
   HOME: IconHome,

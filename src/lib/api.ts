@@ -28,7 +28,9 @@ export async function api<T>(
   const text = await res.text();
   if (!res.ok) {
     const err = text ? (() => { try { return JSON.parse(text); } catch { return { message: res.statusText }; } })() : { message: res.statusText };
-    throw new Error(err.message || 'Error en la solicitud');
+    const rawMessage = (err as { message?: string | string[] }).message;
+    const message = Array.isArray(rawMessage) ? rawMessage.join(', ') : rawMessage;
+    throw new Error(message || 'Error en la solicitud');
   }
   if (!text || text.trim() === '') return null as T;
   try {
@@ -52,6 +54,11 @@ export const authApi = {
       companyId: string | null;
       company: { id: string; name: string } | null;
     }>('/auth/me'),
+  changePassword: (data: { currentPassword: string; newPassword: string; confirmPassword: string }) =>
+    api<{ ok: boolean }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };
 
 export const companiesApi = {
@@ -80,6 +87,8 @@ export const configApi = {
 export const clientsApi = {
   search: (companyId: string, rifCedula: string) =>
     api<unknown | null>('/clients/search', { params: { companyId, rifCedula } }),
+  searchMany: (companyId: string, q: string) =>
+    api<unknown[]>('/clients/search', { params: { companyId, q } }),
   list: (companyId: string, page?: number, limit?: number, search?: string) =>
     api<{ items: unknown[]; total: number }>('/clients', {
       params: { companyId, ...(page && { page: String(page) }), ...(limit && { limit: String(limit) }), ...(search && { search }) },
@@ -193,9 +202,84 @@ export const logsApi = {
     }),
 };
 
+export const accountsReceivableApi = {
+  list: (companyId: string, filters?: Record<string, string | number>) =>
+    api<{ items: unknown[]; total: number; page: number; limit: number }>('/accounts-receivable', {
+      params: { companyId, ...(filters as Record<string, string>) },
+    }),
+  create: (companyId: string, data: Record<string, unknown>) =>
+    api<unknown>('/accounts-receivable', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  markPaid: (id: string, companyId: string) =>
+    api<unknown>(`/accounts-receivable/${id}/mark-paid`, { method: 'PATCH', params: { companyId } }),
+};
+
+export const accountsPayableApi = {
+  list: (companyId: string, filters?: Record<string, string | number>) =>
+    api<{ items: unknown[]; total: number; page: number; limit: number }>('/accounts-payable', {
+      params: { companyId, ...(filters as Record<string, string>) },
+    }),
+  create: (companyId: string, data: Record<string, unknown>) =>
+    api<unknown>('/accounts-payable', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  markPaid: (id: string, companyId: string) =>
+    api<unknown>(`/accounts-payable/${id}/mark-paid`, { method: 'PATCH', params: { companyId } }),
+};
+
+export type AdminStats = {
+  ingresosCount: number;
+  ingresosTotalCost: number;
+  facturacionCount: number;
+  facturacionTotal: number;
+  balance: number;
+  from?: string | null;
+  to?: string | null;
+  inventario?: {
+    ingresosCount: number;
+    ingresosTotalCost: number;
+    egresosCount: number;
+    egresosTotalCost: number;
+  };
+  facturacion?: {
+    count: number;
+    subtotal: number;
+    iva: number;
+    total: number;
+  };
+  cuentasPorCobrar?: {
+    pagadasCount: number;
+    pagadasTotal: number;
+    pendientesCount: number;
+    pendientesTotal: number;
+    vencidasCount: number;
+    vencidasTotal: number;
+    abiertasTotal: number;
+  };
+  cuentasPorPagar?: {
+    pagadasCount: number;
+    pagadasTotal: number;
+    pagadasTotalBs: number;
+    pendientesCount: number;
+    pendientesTotal: number;
+    vencidasCount: number;
+    vencidasTotal: number;
+    abiertasTotal: number;
+  };
+  balances?: {
+    inventarioFacturacion: number;
+    cuentasAbiertas: number;
+    flujoCuentas: number;
+    general: number;
+  };
+};
+
 export const adminApi = {
-  stats: (companyId: string) =>
-    api<{ ingresosCount: number; ingresosTotalCost: number; facturacionCount: number; facturacionTotal: number; balance: number }>('/admin/stats', { params: { companyId } }),
+  stats: (companyId: string, filters?: { from?: string; to?: string }) =>
+    api<AdminStats>('/admin/stats', {
+      params: {
+        companyId,
+        ...(filters?.from && { from: filters.from }),
+        ...(filters?.to && { to: filters.to }),
+      },
+    }),
 };
 
 /** Sube una imagen a Vercel Blob. Devuelve la URL para guardar en BD. Requiere estar logueado. */
@@ -219,6 +303,16 @@ export async function uploadImage(file: File): Promise<{ url: string; pathname: 
 
 export const usersApi = {
   listAdmins: () => api<Array<{ id: string; username: string; companyId: string | null; company: { id: string; name: string } | null }>>('/users/admins'),
+  listByCompany: (companyId?: string) =>
+    api<Array<{ id: string; username: string; role: string; enabled: boolean; companyId: string | null; createdAt: string; updatedAt: string }>>(
+      `/users${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ''}`,
+    ),
+  setEnabled: (id: string, enabled: boolean) =>
+    api<{ id: string; username: string; role: string; enabled: boolean }>(`/users/${id}/enabled`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+  deleteUser: (id: string) => api<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' }),
   createUser: (data: {
     username: string;
     password: string;

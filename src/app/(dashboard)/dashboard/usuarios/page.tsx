@@ -1,32 +1,45 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usersApi, companiesApi, configApi } from '@/lib/api';
 import { SUPERADMIN_COMPANY_STORAGE_KEY } from '@/lib/constants';
-
-const MODULE_LABELS: Record<string, string> = {
-  CONFIGURACION: 'Configuración',
-  CLIENTES: 'Clientes',
-  PRESUPUESTOS: 'Presupuestos',
-  FACTURACION: 'Facturación',
-  INVENTARIO: 'Inventario',
-  ADMINISTRACION: 'Administración',
-  LOGS: 'Logs',
-  GESTION_USUARIOS: 'Gestión de usuarios',
-};
+import { MODULE_LABELS, hasModuleAccess } from '@/lib/role-modules';
 
 type CompanyRow = { id: string; name: string; adminUsername?: string | null; rif?: string; email?: string };
+type CompanyUser = {
+  id: string;
+  username: string;
+  role: string;
+  enabled: boolean;
+  companyId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: 'Admin',
+  VENDEDOR: 'Vendedor',
+  SUPERVISOR: 'Supervisor',
+};
+
+function formatDate(iso: string) {
+  try {
+    return new Date(iso).toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' });
+  } catch {
+    return iso;
+  }
+}
 
 export default function UsuariosPage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<'administracion' | 'crear'>('administracion');
+  const [tab, setTab] = useState<'usuarios' | 'administracion' | 'crear'>('usuarios');
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const isAdminOrSuperAdmin = isSuperAdmin || user?.role === 'ADMIN';
 
   useEffect(() => {
-    if (!isSuperAdmin && tab === 'administracion') setTab('crear');
+    if (!isSuperAdmin && tab === 'administracion') setTab('usuarios');
   }, [isSuperAdmin, tab]);
 
   const [companies, setCompanies] = useState<CompanyRow[]>([]);
@@ -39,6 +52,13 @@ export default function UsuariosPage() {
   const [adminModules, setAdminModules] = useState<string[]>(Object.keys(MODULE_LABELS));
   const [savingModules, setSavingModules] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
+
+  const [companyUsers, setCompanyUsers] = useState<CompanyUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [usersCompanyId, setUsersCompanyId] = useState('');
+  const [usersMessage, setUsersMessage] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
+  const [actionUserId, setActionUserId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<CompanyUser | null>(null);
 
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -54,6 +74,26 @@ export default function UsuariosPage() {
   const [error, setError] = useState('');
   const [companiesForDropdown, setCompaniesForDropdown] = useState<{ id: string; name: string }[]>([]);
   const [createdUserModal, setCreatedUserModal] = useState<string | null>(null);
+
+  const listCompanyId = isSuperAdmin ? usersCompanyId : user?.companyId || '';
+
+  const loadCompanyUsers = useCallback(() => {
+    if (!isAdminOrSuperAdmin) return;
+    if (isSuperAdmin && !usersCompanyId) {
+      setCompanyUsers([]);
+      return;
+    }
+    setLoadingUsers(true);
+    setUsersMessage(null);
+    usersApi
+      .listByCompany(isSuperAdmin ? usersCompanyId : undefined)
+      .then((list) => setCompanyUsers(list || []))
+      .catch((e) => {
+        setCompanyUsers([]);
+        setUsersMessage({ type: 'error', text: e instanceof Error ? e.message : 'Error al cargar usuarios' });
+      })
+      .finally(() => setLoadingUsers(false));
+  }, [isAdminOrSuperAdmin, isSuperAdmin, usersCompanyId]);
 
   const loadCompanies = () => {
     if (!isSuperAdmin) return;
@@ -77,15 +117,22 @@ export default function UsuariosPage() {
   useEffect(() => {
     if (isSuperAdmin && companies.length > 0) {
       const stored = typeof window !== 'undefined' ? localStorage.getItem(SUPERADMIN_COMPANY_STORAGE_KEY) : null;
-      if (stored && companies.some((c) => c.id === stored)) setSelectedCompanyId(stored);
+      if (stored && companies.some((c) => c.id === stored)) {
+        setSelectedCompanyId(stored);
+        setUsersCompanyId((prev) => prev || stored);
+      }
     }
   }, [isSuperAdmin, companies]);
 
   useEffect(() => {
-    if (isSuperAdmin && tab === 'crear') {
+    if (isSuperAdmin && (tab === 'crear' || tab === 'usuarios')) {
       companiesApi.list().then((list) => setCompaniesForDropdown((list || []).map((c: any) => ({ id: c.id, name: c.name })))).catch(() => []);
     }
   }, [isSuperAdmin, tab]);
+
+  useEffect(() => {
+    if (tab === 'usuarios') loadCompanyUsers();
+  }, [tab, loadCompanyUsers]);
 
   useEffect(() => {
     if (!selectedCompanyId) {
@@ -114,6 +161,54 @@ export default function UsuariosPage() {
     } catch (e) {
       setSaveMessage({ type: 'error', text: e instanceof Error ? e.message : 'Error al guardar' });
       setSavingModules(false);
+    }
+  };
+
+  const canManageActions = (row: CompanyUser) => {
+    if (row.id === user?.sub) return false;
+    if (row.role === 'ADMIN') return isSuperAdmin;
+    return row.role === 'VENDEDOR' || row.role === 'SUPERVISOR';
+  };
+
+  const canDelete = (row: CompanyUser) => {
+    if (row.id === user?.sub) return false;
+    return row.role === 'VENDEDOR' || row.role === 'SUPERVISOR';
+  };
+
+  const handleToggleEnabled = async (row: CompanyUser) => {
+    if (!canManageActions(row)) return;
+    setActionUserId(row.id);
+    setUsersMessage(null);
+    try {
+      const updated = await usersApi.setEnabled(row.id, !row.enabled);
+      setCompanyUsers((prev) => prev.map((u) => (u.id === row.id ? { ...u, enabled: updated.enabled } : u)));
+      setUsersMessage({
+        type: 'ok',
+        text: updated.enabled
+          ? `Usuario ${row.username} desbloqueado.`
+          : `Usuario ${row.username} bloqueado.`,
+      });
+    } catch (e) {
+      setUsersMessage({ type: 'error', text: e instanceof Error ? e.message : 'Error al actualizar usuario' });
+    } finally {
+      setActionUserId(null);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDelete) return;
+    const row = confirmDelete;
+    setActionUserId(row.id);
+    setUsersMessage(null);
+    try {
+      await usersApi.deleteUser(row.id);
+      setCompanyUsers((prev) => prev.filter((u) => u.id !== row.id));
+      setUsersMessage({ type: 'ok', text: `Usuario ${row.username} eliminado.` });
+      setConfirmDelete(null);
+    } catch (e) {
+      setUsersMessage({ type: 'error', text: e instanceof Error ? e.message : 'Error al eliminar usuario' });
+    } finally {
+      setActionUserId(null);
     }
   };
 
@@ -169,6 +264,7 @@ export default function UsuariosPage() {
       setCompanyPhone('');
       setCompanyEmail('');
       if (isSuperAdmin) loadCompanies();
+      if (tab === 'usuarios' || !isSuperAdmin) loadCompanyUsers();
       setCreatedUserModal(usernameToCreate);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al crear usuario');
@@ -192,11 +288,18 @@ export default function UsuariosPage() {
       <h1 className="text-2xl font-bold text-[var(--foreground)]">Gestión de usuarios</h1>
       <p className="text-[var(--muted)] mt-1">
         {isSuperAdmin
-          ? 'Administración: listar empresas, filtrar y activar/desactivar módulos por empresa. Crear usuario: Admin (nueva empresa) o Vendedor/Supervisor para una empresa.'
-          : 'Crear usuarios Vendedor o Supervisor para tu empresa.'}
+          ? 'Listar y gestionar usuarios por empresa, administrar módulos y crear usuarios Admin, Vendedor o Supervisor.'
+          : 'Listar, bloquear o eliminar usuarios de tu empresa, y crear Vendedores o Supervisores.'}
       </p>
 
       <div className="flex gap-2 mt-6 border-b border-[var(--border)]">
+        <button
+          type="button"
+          onClick={() => setTab('usuarios')}
+          className={`px-4 py-2 font-medium rounded-t-lg ${tab === 'usuarios' ? 'bg-[var(--card)] border border-[var(--border)] border-b-0 -mb-px text-[var(--primary)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
+        >
+          Usuarios
+        </button>
         {isSuperAdmin && (
           <button
             type="button"
@@ -214,6 +317,113 @@ export default function UsuariosPage() {
           Crear usuario
         </button>
       </div>
+
+      {tab === 'usuarios' && (
+        <div className="mt-6 space-y-4">
+          {isSuperAdmin && (
+            <div className="p-4 rounded-xl bg-[var(--card)] border border-[var(--border)] max-w-md">
+              <label className="block text-sm text-[var(--muted)] mb-1">Empresa</label>
+              <select
+                value={usersCompanyId}
+                onChange={(e) => setUsersCompanyId(e.target.value)}
+                className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2"
+              >
+                <option value="">Seleccionar empresa</option>
+                {companiesForDropdown.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {usersMessage && (
+            <p className={`text-sm ${usersMessage.type === 'ok' ? 'text-green-600' : 'text-[var(--destructive)]'}`}>
+              {usersMessage.text}
+            </p>
+          )}
+
+          {!listCompanyId && isSuperAdmin ? (
+            <p className="text-[var(--muted)]">Selecciona una empresa para ver sus usuarios.</p>
+          ) : (
+            <div className="rounded-xl border border-[var(--border)] overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-[var(--card)]">
+                  <tr>
+                    <th className="p-3 font-medium">Usuario</th>
+                    <th className="p-3 font-medium">Rol</th>
+                    <th className="p-3 font-medium">Estado</th>
+                    <th className="p-3 font-medium">Creado</th>
+                    <th className="p-3 font-medium">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {companyUsers.map((row) => {
+                    const managing = actionUserId === row.id;
+                    const showManage = canManageActions(row);
+                    const showDelete = canDelete(row);
+                    return (
+                      <tr key={row.id} className="border-t border-[var(--border)]">
+                        <td className="p-3">
+                          {row.username}
+                          {row.id === user.sub && (
+                            <span className="ml-2 text-xs text-[var(--muted)]">(tú)</span>
+                          )}
+                        </td>
+                        <td className="p-3">{ROLE_LABELS[row.role] ?? row.role}</td>
+                        <td className="p-3">
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                              row.enabled
+                                ? 'bg-green-500/15 text-green-700 dark:text-green-400'
+                                : 'bg-red-500/15 text-red-700 dark:text-red-400'
+                            }`}
+                          >
+                            {row.enabled ? 'Activo' : 'Bloqueado'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-sm text-[var(--muted)]">{formatDate(row.createdAt)}</td>
+                        <td className="p-3">
+                          <div className="flex flex-wrap gap-2">
+                            {showManage && (
+                              <button
+                                type="button"
+                                disabled={managing}
+                                onClick={() => handleToggleEnabled(row)}
+                                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-[var(--card-hover)] disabled:opacity-50"
+                              >
+                                {managing ? '...' : row.enabled ? 'Bloquear' : 'Desbloquear'}
+                              </button>
+                            )}
+                            {showDelete && (
+                              <button
+                                type="button"
+                                disabled={managing}
+                                onClick={() => setConfirmDelete(row)}
+                                className="rounded-lg border border-[var(--destructive)]/40 text-[var(--destructive)] px-3 py-1.5 text-sm font-medium hover:bg-[var(--destructive)]/10 disabled:opacity-50"
+                              >
+                                Eliminar
+                              </button>
+                            )}
+                            {!showManage && !showDelete && (
+                              <span className="text-sm text-[var(--muted)]">—</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {loadingUsers && <p className="p-4 text-center text-[var(--muted)]">Cargando...</p>}
+              {!loadingUsers && companyUsers.length === 0 && (
+                <p className="p-6 text-center text-[var(--muted)]">No hay usuarios en esta empresa.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {tab === 'administracion' && isSuperAdmin && (
         <div className="mt-6 space-y-4">
@@ -287,21 +497,24 @@ export default function UsuariosPage() {
           {selectedCompanyId && (() => {
             const selected = companies.find((c) => c.id === selectedCompanyId);
             const adminUsername = (selected as any)?.adminUsername ?? '—';
-            const companyName = selected?.name ?? '—';
+            const companyNameSelected = selected?.name ?? '—';
             return (
             <div className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
-              <h3 className="font-semibold text-[var(--foreground)] mb-3">Módulos visibles para {adminUsername} — {companyName}</h3>
+              <h3 className="font-semibold text-[var(--foreground)] mb-3">Módulos visibles para {adminUsername} — {companyNameSelected}</h3>
               <p className="text-sm text-[var(--muted)] mb-4">Marca o desmarca los módulos que podrá ver este usuario. Por defecto todos están visibles.</p>
               <div className="flex flex-wrap gap-4">
                 {Object.entries(MODULE_LABELS).map(([key, label]) => (
                   <label key={key} className="flex items-center gap-2 text-sm cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={adminModules.includes(key)}
+                      checked={hasModuleAccess(key, adminModules)}
                       onChange={(e) =>
-                        setAdminModules((prev) =>
-                          e.target.checked ? [...prev, key] : prev.filter((m) => m !== key)
-                        )
+                        setAdminModules((prev) => {
+                          const withoutModule = prev.filter(
+                            (m) => m !== key && !m.startsWith(`${key}_`)
+                          );
+                          return e.target.checked ? [...withoutModule, key] : withoutModule;
+                        })
                       }
                     />
                     {label}
@@ -404,6 +617,35 @@ export default function UsuariosPage() {
             <div className="flex justify-end">
               <button type="button" onClick={() => setCreatedUserModal(null)} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium">
                 Aceptar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="delete-user-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 id="delete-user-modal-title" className="font-semibold text-[var(--foreground)] text-lg mb-2">Eliminar usuario</h2>
+            <p className="text-sm text-[var(--muted)] mb-6">
+              ¿Eliminar a <strong className="text-[var(--foreground)]">{confirmDelete.username}</strong> ({ROLE_LABELS[confirmDelete.role] ?? confirmDelete.role})? Esta acción no se puede deshacer.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(null)}
+                disabled={actionUserId === confirmDelete.id}
+                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={actionUserId === confirmDelete.id}
+                className="rounded-lg bg-[var(--destructive)] text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+              >
+                {actionUserId === confirmDelete.id ? 'Eliminando...' : 'Eliminar'}
               </button>
             </div>
           </div>

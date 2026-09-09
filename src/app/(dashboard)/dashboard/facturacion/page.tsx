@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { invoicesApi, budgetsApi, clientsApi, productsApi, companiesApi, configApi, inventoryApi } from '@/lib/api';
+import { invoicesApi, budgetsApi, clientsApi, productsApi, companiesApi, configApi, inventoryApi, accountsReceivableApi } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 import { IconSearch, IconX } from '@/components/Icons';
 import { hasSectionAccess } from '@/lib/role-modules';
@@ -193,6 +193,13 @@ export default function FacturacionPage() {
   const [clientSearchResult, setClientSearchResult] = useState<any | 'loading' | 'not-found'>(null);
   const [clientForm, setClientForm] = useState<{ name: string; address: string; rifCedula: string; phone: string; email: string }>({ name: '', address: '', rifCedula: '', phone: '', email: '' });
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [clientSearchModalOpen, setClientSearchModalOpen] = useState(false);
+  const [clientSearchModalQuery, setClientSearchModalQuery] = useState('');
+  const [clientSearchModalResults, setClientSearchModalResults] = useState<any[]>([]);
+  const [clientSearchModalHighlightedIndex, setClientSearchModalHighlightedIndex] = useState(0);
+  const [clientSearchModalLoading, setClientSearchModalLoading] = useState(false);
+  const clientSearchModalDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clientSearchModalInputRef = useRef<HTMLInputElement>(null);
   const [productCodeInput, setProductCodeInput] = useState('');
   const [items, setItems] = useState<InvoiceItemRow[]>([]);
   const [productSearchModalOpen, setProductSearchModalOpen] = useState(false);
@@ -227,6 +234,7 @@ export default function FacturacionPage() {
   const [confirmLoadDraft, setConfirmLoadDraft] = useState<{ draft: InvoiceDraft } | null>(null);
   const [draftSavedMessage, setDraftSavedMessage] = useState(false);
   const [loadingDraft, setLoadingDraft] = useState(false);
+  const [arDueDateModal, setArDueDateModal] = useState<{ dueDate: string } | null>(null);
 
   const [productNotFoundModal, setProductNotFoundModal] = useState<{ open: boolean; code: string }>({ open: false, code: '' });
   const [registerProductModal, setRegisterProductModal] = useState(false);
@@ -379,13 +387,94 @@ export default function FacturacionPage() {
       const found = await clientsApi.search(companyId, clientRif.trim()) as any;
       setClientSearchResult(found ?? 'not-found');
       if (found) {
-        setSelectedClientId(found.id);
-        setClientForm({ name: found.name, address: found.address ?? '', rifCedula: found.rifCedula, phone: found.phone ?? '', email: found.email ?? '' });
+        applyClient(found);
       } else {
         setSelectedClientId(null);
         setClientForm({ name: '', address: '', rifCedula: clientRif.trim(), phone: '', email: '' });
       }
     } catch { setClientSearchResult(null); }
+  };
+
+  const applyClient = (client: { id: string; name: string; address?: string; rifCedula: string; phone?: string; email?: string }) => {
+    setClientRif(client.rifCedula);
+    setClientSearchResult(client);
+    setSelectedClientId(client.id);
+    setClientForm({
+      name: client.name,
+      address: client.address ?? '',
+      rifCedula: client.rifCedula,
+      phone: client.phone ?? '',
+      email: client.email ?? '',
+    });
+  };
+
+  const handleClientRifKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter' || !clientRif.trim()) return;
+    e.preventDefault();
+    handleSearchClient();
+  };
+
+  useEffect(() => {
+    if (!clientSearchModalOpen || !companyId) return;
+    if (!clientSearchModalQuery.trim()) {
+      setClientSearchModalResults([]);
+      return;
+    }
+    if (clientSearchModalDebounceRef.current) clearTimeout(clientSearchModalDebounceRef.current);
+    clientSearchModalDebounceRef.current = setTimeout(() => {
+      setClientSearchModalLoading(true);
+      clientsApi.searchMany(companyId, clientSearchModalQuery.trim()).then((list) => {
+        setClientSearchModalResults((list as any[]) || []);
+        setClientSearchModalHighlightedIndex(0);
+      }).catch(() => setClientSearchModalResults([])).finally(() => setClientSearchModalLoading(false));
+    }, PRODUCT_SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (clientSearchModalDebounceRef.current) clearTimeout(clientSearchModalDebounceRef.current);
+    };
+  }, [clientSearchModalOpen, clientSearchModalQuery, companyId]);
+
+  const openClientSearchModal = () => {
+    setClientSearchModalOpen(true);
+    setClientSearchModalQuery('');
+    setClientSearchModalResults([]);
+    setClientSearchModalHighlightedIndex(0);
+    setTimeout(() => clientSearchModalInputRef.current?.focus(), 100);
+  };
+
+  const closeClientSearchModal = () => {
+    setClientSearchModalOpen(false);
+    setClientSearchModalQuery('');
+    setClientSearchModalResults([]);
+  };
+
+  const selectClientFromSearch = (client: any) => {
+    applyClient(client);
+    closeClientSearchModal();
+  };
+
+  const handleClientSearchModalKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeClientSearchModal();
+      return;
+    }
+    if (clientSearchModalResults.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setClientSearchModalHighlightedIndex((i) => Math.min(i + 1, clientSearchModalResults.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setClientSearchModalHighlightedIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const client = clientSearchModalResults[clientSearchModalHighlightedIndex];
+        if (client) selectClientFromSearch(client);
+      }
+    }
   };
 
   const isClientNotFound = clientSearchResult === 'not-found';
@@ -811,6 +900,139 @@ export default function FacturacionPage() {
     } catch (e) { setErrorInvoice(e instanceof Error ? e.message : 'Error'); } finally { setSavingInvoice(false); }
   };
 
+  const validateInvoiceFormForSave = async (opts?: { createClient?: boolean }): Promise<{ clientId: string } | null> => {
+    if (!companyId) return null;
+    let clientId = selectedClientId;
+
+    if (!clientId && !canSubmitWithNewClient) {
+      setErrorInvoice('Cliente es obligatorio. Busca por RIF/Cédula o completa los datos si no está registrado.');
+      return null;
+    }
+
+    if (!clientId && canSubmitWithNewClient && opts?.createClient) {
+      setErrorInvoice('');
+      try {
+        const created = await clientsApi.create(companyId, clientForm) as { id: string };
+        clientId = created.id;
+        setSelectedClientId(created.id);
+      } catch (e) {
+        setErrorInvoice(e instanceof Error ? e.message : 'Error al crear cliente');
+        return null;
+      }
+    }
+
+    if (items.length === 0) { setErrorInvoice('Agrega al menos un producto.'); return null; }
+    if (items.some((i) => !i.quantity || i.quantity <= 0)) {
+      setErrorInvoice('Todas las cantidades de producto deben ser mayores a 0.');
+      return null;
+    }
+    const noStockItems = items.filter((i) => !i.isService && i.stock != null && (i.quantity ?? 0) > i.stock);
+    if (noStockItems.length > 0) {
+      setErrorInvoice('Los productos resaltados en rojo no tienen stock disponible. Ajusta las cantidades o quítalos de la factura.');
+      return null;
+    }
+    const invFieldConfig = config?.invoiceFieldsConfig ?? {};
+    const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
+    if (invVisible('title') && !title.trim()) { setErrorInvoice('Título es obligatorio.'); return null; }
+    if (invVisible('rateOfDay')) {
+      const companyBase = getDefaultCurrencyFromConfig(config) ?? 'USD';
+      const invoiceHasOtherThanBase = currencies.some((c) => c !== companyBase);
+      const hasRate = !!rateOfDay.trim() && !isNaN(Number(rateOfDay));
+      const hasConfigRate = config?.usdRate != null || config?.eurRate != null;
+      if (invoiceHasOtherThanBase && !hasRate && !hasConfigRate) {
+        setErrorInvoice('Tasa del día es obligatoria cuando se selecciona una moneda distinta a la de la configuración de la empresa.');
+        return null;
+      }
+    }
+
+    // En pre-validación (sin crear cliente aún) permitimos continuar con placeholder.
+    if (!clientId && canSubmitWithNewClient && !opts?.createClient) {
+      return { clientId: '__pending_new_client__' };
+    }
+    if (!clientId) {
+      setErrorInvoice('Cliente es obligatorio. Busca por RIF/Cédula o completa los datos si no está registrado.');
+      return null;
+    }
+    return { clientId };
+  };
+
+  const handleOpenArModal = async () => {
+    const ok = await validateInvoiceFormForSave({ createClient: false });
+    if (!ok) return;
+    setErrorInvoice('');
+    setArDueDateModal({ dueDate: '' });
+  };
+
+  const handleCreateAsReceivable = async () => {
+    if (!companyId || !arDueDateModal?.dueDate) {
+      setErrorInvoice('Indica la fecha de vencimiento de la cuenta por cobrar.');
+      return;
+    }
+    setSavingInvoice(true);
+    const validated = await validateInvoiceFormForSave({ createClient: true });
+    if (!validated || validated.clientId.startsWith('__')) {
+      setSavingInvoice(false);
+      return;
+    }
+
+    const invFieldConfig = config?.invoiceFieldsConfig ?? {};
+    const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
+    const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+    let effectiveRate: number | null = null;
+    if (invVisible('rateOfDay')) {
+      if (rateOfDay.trim() && !isNaN(Number(rateOfDay))) effectiveRate = Number(rateOfDay);
+      else if (foreign === 'USD' && config?.usdRate != null) effectiveRate = Number(config.usdRate);
+      else if (foreign === 'EUR' && config?.eurRate != null) effectiveRate = Number(config.eurRate);
+    } else {
+      if (config?.usdRate != null) effectiveRate = Number(config.usdRate);
+      else if (config?.eurRate != null) effectiveRate = Number(config.eurRate);
+      else effectiveRate = 1;
+    }
+
+    const subSinIva = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+    const subConIva = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+    const ivaAmount = (subConIva * ivaPercent) / 100;
+    const totalAmount = subSinIva + subConIva + ivaAmount;
+    const arCurrency = getDefaultCurrencyFromConfig(config) ?? 'BS';
+
+    setErrorInvoice('');
+    try {
+      const created = await invoicesApi.create(companyId, {
+        title: (invVisible('title') ? title.trim() : '') || 'Factura',
+        clientId: validated.clientId,
+        date,
+        ivaPercent,
+        rateOfDay: effectiveRate ?? 1,
+        currencies,
+        observations: invVisible('observations') ? observations.trim() || undefined : undefined,
+        priority: invVisible('priority') ? priority : 'NORMAL',
+        paymentMethods: invVisible('paymentMethods') ? paymentMethods : [],
+        deliveryTime: invVisible('deliveryTime') ? deliveryTime.trim() || undefined : undefined,
+        validity: invVisible('validity') ? validity.trim() || undefined : undefined,
+        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder, exentoIva: i.exentoIva })),
+        createOrder,
+      }) as { id: string; correlative: string };
+
+      await accountsReceivableApi.create(companyId, {
+        clientId: validated.clientId,
+        invoiceNumber: created.correlative,
+        amount: totalAmount,
+        currency: arCurrency,
+        dueDate: arDueDateModal.dueDate,
+        invoiceId: created.id,
+      });
+
+      setArDueDateModal(null);
+      setTitle(''); setClientRif(''); setClientSearchResult(null); setSelectedClientId(null);
+      setItems([]); setRateOfDay(''); setObservations(''); setPaymentMethods([]); setDeliveryTime(''); setValidity('');
+      setSavedInvoiceModal({ invoiceId: created.id });
+    } catch (e) {
+      setErrorInvoice(e instanceof Error ? e.message : 'Error al crear factura / cuenta por cobrar');
+    } finally {
+      setSavingInvoice(false);
+    }
+  };
+
   const performCreateInvoice = async () => {
     if (!companyId || !selectedClientId || !paymentBreakdownModal) return;
     if (items.some((i) => !i.quantity || i.quantity <= 0)) {
@@ -1150,8 +1372,15 @@ export default function FacturacionPage() {
               <section className="p-5 rounded-xl bg-[var(--card)] border border-[var(--border)]">
                 <h2 className="font-semibold text-[var(--foreground)] mb-3">Cliente</h2>
                 <div className="flex gap-2 flex-wrap">
-                  <input value={clientRif} onChange={(e) => setClientRif(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearchClient()} placeholder="RIF o Cédula" className="flex-1 min-w-[200px] rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
-                  <button type="button" onClick={handleSearchClient} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2">Buscar</button>
+                  <input value={clientRif} onChange={(e) => setClientRif(e.target.value)} onKeyDown={handleClientRifKeyDown} placeholder="RIF o Cédula (Enter para buscar)" className="flex-1 min-w-[200px] rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2" />
+                  <button
+                    type="button"
+                    onClick={openClientSearchModal}
+                    title="Buscar cliente por RIF/Cédula, nombre o dirección"
+                    className="rounded-lg bg-[var(--background)] border border-[var(--border)] p-2 text-[var(--muted)] hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]"
+                  >
+                    <IconSearch className="w-5 h-5" />
+                  </button>
                 </div>
                 {clientSearchResult === 'loading' && <p className="mt-2 text-sm text-[var(--muted)]">Buscando...</p>}
                 {clientSearchResult && clientSearchResult !== 'loading' && clientSearchResult !== 'not-found' && (
@@ -1364,6 +1593,14 @@ export default function FacturacionPage() {
                 <button type="button" onClick={handleSubmitInvoice} disabled={savingInvoice || !hasValidClient || items.length === 0} className="rounded-lg bg-[var(--primary)] text-white px-6 py-2 font-medium disabled:opacity-50">{savingInvoice ? 'Guardando...' : 'Guardar factura'}</button>
                 <div className="flex items-center gap-2">
                   {draftSavedMessage && <span className="text-sm text-[var(--primary)]">Borrador guardado</span>}
+                  <button
+                    type="button"
+                    onClick={handleOpenArModal}
+                    disabled={savingInvoice || !hasValidClient || items.length === 0}
+                    className="rounded-lg bg-[var(--card)] border border-[var(--primary)]/40 px-3 py-1.5 text-sm text-[var(--primary)] hover:bg-[var(--primary)]/10 disabled:opacity-50"
+                  >
+                    Cuenta por cobrar
+                  </button>
                   <button type="button" onClick={handleSaveDraft} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--card-hover)]">Guardar borrador</button>
                 </div>
               </div>
@@ -1483,6 +1720,43 @@ export default function FacturacionPage() {
         </div>
       )}
 
+      {/* Modal: fecha de vencimiento para cuenta por cobrar */}
+      {arDueDateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-semibold text-[var(--foreground)] text-lg mb-2">Cuenta por cobrar</h2>
+            <p className="text-sm text-[var(--muted)] mb-4">
+              Se guardará la factura y se registrará como cuenta por cobrar. Indica la fecha de vencimiento.
+            </p>
+            <label className="block text-sm text-[var(--muted)] mb-1">Fecha de vencimiento</label>
+            <input
+              type="date"
+              value={arDueDateModal.dueDate}
+              onChange={(e) => setArDueDateModal({ dueDate: e.target.value })}
+              className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setArDueDateModal(null)}
+                disabled={savingInvoice}
+                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateAsReceivable}
+                disabled={savingInvoice || !arDueDateModal.dueDate}
+                className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+              >
+                {savingInvoice ? 'Guardando…' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: confirmar sustituir datos por borrador */}
       {confirmLoadDraft && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="confirm-load-draft-title">
@@ -1596,6 +1870,55 @@ export default function FacturacionPage() {
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setRegisterProductModal(false)} className="rounded-lg bg-[var(--card-hover)] text-[var(--foreground)] px-4 py-2 font-medium">Cancelar</button>
               <button type="button" onClick={handleRegisterProductSubmit} disabled={registerProductSaving} className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 font-medium disabled:opacity-50">{registerProductSaving ? 'Guardando...' : 'Guardar y agregar a la factura'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {clientSearchModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="client-search-modal-title">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between gap-2">
+              <h2 id="client-search-modal-title" className="font-semibold text-[var(--foreground)]">Buscar cliente</h2>
+              <button type="button" onClick={closeClientSearchModal} className="p-1 rounded text-[var(--muted)] hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]" aria-label="Cerrar">
+                <IconX className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4">
+              <input
+                ref={clientSearchModalInputRef}
+                value={clientSearchModalQuery}
+                onChange={(e) => setClientSearchModalQuery(e.target.value)}
+                onKeyDown={handleClientSearchModalKeyDown}
+                placeholder="RIF/Cédula, nombre o dirección"
+                className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 mb-3"
+              />
+              {clientSearchModalLoading && <p className="text-sm text-[var(--muted)] mb-2">Buscando...</p>}
+            </div>
+            <div className="flex-1 overflow-y-auto min-h-0 px-4 pb-4">
+              {!clientSearchModalQuery.trim() && (
+                <p className="text-sm text-[var(--muted)]">Escribe RIF/Cédula, nombre o dirección para buscar.</p>
+              )}
+              {clientSearchModalQuery.trim() && clientSearchModalResults.length === 0 && !clientSearchModalLoading && (
+                <p className="text-sm text-[var(--muted)]">Sin coincidencias.</p>
+              )}
+              {clientSearchModalResults.length > 0 && (
+                <ul className="border border-[var(--border)] rounded-lg overflow-hidden">
+                  {clientSearchModalResults.map((client: any, idx: number) => (
+                    <li key={client.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); selectClientFromSearch(client); }}
+                        className={`w-full text-left px-3 py-2.5 text-sm border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--card-hover)] ${idx === clientSearchModalHighlightedIndex ? 'bg-[var(--card-hover)]' : ''}`}
+                      >
+                        <p className="font-medium">{client.name}</p>
+                        <p className="text-[var(--muted)]">RIF/Cédula: {client.rifCedula}</p>
+                        {client.address && <p className="text-[var(--muted)] truncate">{client.address}</p>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
