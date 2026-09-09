@@ -28,7 +28,9 @@ export async function api<T>(
   const text = await res.text();
   if (!res.ok) {
     const err = text ? (() => { try { return JSON.parse(text); } catch { return { message: res.statusText }; } })() : { message: res.statusText };
-    throw new Error(err.message || 'Error en la solicitud');
+    const rawMessage = (err as { message?: string | string[] }).message;
+    const message = Array.isArray(rawMessage) ? rawMessage.join(', ') : rawMessage;
+    throw new Error(message || 'Error en la solicitud');
   }
   if (!text || text.trim() === '') return null as T;
   try {
@@ -52,6 +54,11 @@ export const authApi = {
       companyId: string | null;
       company: { id: string; name: string } | null;
     }>('/auth/me'),
+  changePassword: (data: { currentPassword: string; newPassword: string; confirmPassword: string }) =>
+    api<{ ok: boolean }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };
 
 export const companiesApi = {
@@ -221,6 +228,16 @@ export async function uploadImage(file: File): Promise<{ url: string; pathname: 
 
 export const usersApi = {
   listAdmins: () => api<Array<{ id: string; username: string; companyId: string | null; company: { id: string; name: string } | null }>>('/users/admins'),
+  listByCompany: (companyId?: string) =>
+    api<Array<{ id: string; username: string; role: string; enabled: boolean; companyId: string | null; createdAt: string; updatedAt: string }>>(
+      `/users${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ''}`,
+    ),
+  setEnabled: (id: string, enabled: boolean) =>
+    api<{ id: string; username: string; role: string; enabled: boolean }>(`/users/${id}/enabled`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+  deleteUser: (id: string) => api<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' }),
   createUser: (data: {
     username: string;
     password: string;

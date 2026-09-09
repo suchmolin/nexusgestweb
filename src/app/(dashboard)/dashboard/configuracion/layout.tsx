@@ -32,11 +32,21 @@ export function useConfigContext() {
   return ctx;
 }
 
-const NAV: { href: string; label: string; sectionId: string }[] = [
+const PASSWORD_SECTION_ID = 'cambiar-contrasena';
+
+const MODULE_NAV: { href: string; label: string; sectionId: string }[] = [
   { href: '/dashboard/configuracion/empresa', label: 'Empresa', sectionId: 'empresa' },
   { href: '/dashboard/configuracion/presupuestos-facturas', label: 'Presupuestos y facturas', sectionId: 'presupuestos-facturas' },
   { href: '/dashboard/configuracion/moneda-tasa', label: 'Moneda y tasa', sectionId: 'moneda-tasa' },
 ];
+
+const ALWAYS_NAV: { href: string; label: string; sectionId: string }[] = [
+  { href: '/dashboard/configuracion/cambiar-contrasena', label: 'Cambiar contraseña', sectionId: PASSWORD_SECTION_ID },
+];
+
+export function isPasswordConfigPath(pathname: string | null): boolean {
+  return !!pathname?.includes('/configuracion/cambiar-contrasena');
+}
 
 export default function ConfiguracionLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -85,9 +95,17 @@ export default function ConfiguracionLayout({ children }: { children: React.Reac
     }).catch(() => setAllowedModules([]));
   }, [companyId, user?.role, user?.companyId]);
 
-  const allowedNav = allowedModules === null ? NAV : NAV.filter((item) => hasSectionAccess('CONFIGURACION', item.sectionId, allowedModules));
+  const moduleNav =
+    allowedModules === null
+      ? MODULE_NAV
+      : MODULE_NAV.filter((item) => hasSectionAccess('CONFIGURACION', item.sectionId, allowedModules));
+  const allowedNav = [...moduleNav, ...ALWAYS_NAV];
   const currentSectionId = pathname?.split('/').pop() ?? '';
-  const canAccessCurrent = allowedModules === null || hasSectionAccess('CONFIGURACION', currentSectionId, allowedModules);
+  const isPasswordTab = currentSectionId === PASSWORD_SECTION_ID;
+  const canAccessCurrent =
+    isPasswordTab ||
+    allowedModules === null ||
+    hasSectionAccess('CONFIGURACION', currentSectionId, allowedModules);
 
   useEffect(() => {
     if (allowedModules === null || canAccessCurrent) return;
@@ -97,13 +115,16 @@ export default function ConfiguracionLayout({ children }: { children: React.Reac
 
   if (!user) return null;
 
+  const showCompanyPicker = user.role === 'SUPER_ADMIN' && !isPasswordTab;
+  const showChildren = isPasswordTab || !!companyId;
+
   return (
     <ConfigContext.Provider value={{ companyId, companies, selectedCompanyId, setSelectedCompanyId }}>
       <div className="p-6 md:p-8">
         <h1 className="text-2xl font-bold text-[var(--foreground)]">Configuración</h1>
-        <p className="text-[var(--muted)] mt-1">Datos de la empresa, documentos, moneda y tasas.</p>
+        <p className="text-[var(--muted)] mt-1">Datos de la empresa, documentos, moneda, tasas y contraseña.</p>
 
-        {user.role === 'SUPER_ADMIN' && (
+        {showCompanyPicker && (
           <div className="mt-4">
             <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Empresa</label>
             <select
@@ -124,7 +145,7 @@ export default function ConfiguracionLayout({ children }: { children: React.Reac
           </div>
         )}
 
-        <div className="flex gap-2 mt-6 border-b border-[var(--border)]">
+        <div className="flex flex-wrap gap-2 mt-6 border-b border-[var(--border)]">
           {allowedNav.map(({ href, label }) => (
             <Link
               key={href}
@@ -140,7 +161,7 @@ export default function ConfiguracionLayout({ children }: { children: React.Reac
           ))}
         </div>
 
-        {!companyId ? (
+        {!showChildren ? (
           <p className="mt-6 text-[var(--muted)]">Selecciona una empresa.</p>
         ) : (
           <div className="mt-6">{children}</div>

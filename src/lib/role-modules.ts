@@ -5,15 +5,16 @@
  */
 
 export const MODULE_LABELS: Record<string, string> = {
+  GESTION_USUARIOS: 'Gestión de usuarios',
   CONFIGURACION: 'Configuración',
   CLIENTES: 'Clientes',
   PRESUPUESTOS: 'Presupuestos',
   FACTURACION: 'Facturación',
   ORDENES: 'Órdenes',
+  CIERRE_CAJA: 'Cierres de caja',
   INVENTARIO: 'Inventario',
   ADMINISTRACION: 'Administración',
   LOGS: 'Logs',
-  CIERRE_CAJA: 'Cierres de caja',
 };
 
 /** Módulos que tienen varias secciones (pestañas). sectionId debe coincidir con el valor de tab o con el segmento de ruta. */

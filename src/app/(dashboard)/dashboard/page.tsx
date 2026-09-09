@@ -51,6 +51,7 @@ export default function DashboardPage() {
   const visible = MODULES.filter((m) => {
     if (m.key === 'GESTION_USUARIOS' && !isAdminOrSuperAdmin) return false;
     if (m.superAdminOnly && !isSuperAdmin) return false;
+    if (m.key === 'CONFIGURACION') return true;
     if (isSuperAdmin) return true;
     if (allowedModules === null) return true;
     return hasModuleAccess(m.key, allowedModules);
