@@ -13,6 +13,8 @@ export const MODULE_LABELS: Record<string, string> = {
   ORDENES: 'Órdenes',
   CIERRE_CAJA: 'Cierres de caja',
   INVENTARIO: 'Inventario',
+  CUENTAS_POR_COBRAR: 'Cuentas por cobrar',
+  CUENTAS_POR_PAGAR: 'Cuentas por pagar',
   ADMINISTRACION: 'Administración',
   LOGS: 'Logs',
 };
@@ -60,6 +62,20 @@ export const MODULE_SECTIONS: Record<
       { id: 'ingreso', label: 'Ingreso' },
       { id: 'egreso', label: 'Egreso' },
       { id: 'add', label: 'Agregar producto' },
+    ],
+  },
+  CUENTAS_POR_COBRAR: {
+    label: 'Cuentas por cobrar',
+    sections: [
+      { id: 'new', label: 'Registrar' },
+      { id: 'list', label: 'Consultar' },
+    ],
+  },
+  CUENTAS_POR_PAGAR: {
+    label: 'Cuentas por pagar',
+    sections: [
+      { id: 'new', label: 'Registrar' },
+      { id: 'list', label: 'Consultar' },
     ],
   },
 };

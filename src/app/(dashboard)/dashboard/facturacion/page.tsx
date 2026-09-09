@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { invoicesApi, budgetsApi, clientsApi, productsApi, companiesApi, configApi, inventoryApi } from '@/lib/api';
+import { invoicesApi, budgetsApi, clientsApi, productsApi, companiesApi, configApi, inventoryApi, accountsReceivableApi } from '@/lib/api';
 import { ActionModal, type ActionModalVariant } from '@/components/ActionModal';
 import { IconSearch, IconX } from '@/components/Icons';
 import { hasSectionAccess } from '@/lib/role-modules';
@@ -234,6 +234,7 @@ export default function FacturacionPage() {
   const [confirmLoadDraft, setConfirmLoadDraft] = useState<{ draft: InvoiceDraft } | null>(null);
   const [draftSavedMessage, setDraftSavedMessage] = useState(false);
   const [loadingDraft, setLoadingDraft] = useState(false);
+  const [arDueDateModal, setArDueDateModal] = useState<{ dueDate: string } | null>(null);
 
   const [productNotFoundModal, setProductNotFoundModal] = useState<{ open: boolean; code: string }>({ open: false, code: '' });
   const [registerProductModal, setRegisterProductModal] = useState(false);
@@ -899,6 +900,139 @@ export default function FacturacionPage() {
     } catch (e) { setErrorInvoice(e instanceof Error ? e.message : 'Error'); } finally { setSavingInvoice(false); }
   };
 
+  const validateInvoiceFormForSave = async (opts?: { createClient?: boolean }): Promise<{ clientId: string } | null> => {
+    if (!companyId) return null;
+    let clientId = selectedClientId;
+
+    if (!clientId && !canSubmitWithNewClient) {
+      setErrorInvoice('Cliente es obligatorio. Busca por RIF/Cédula o completa los datos si no está registrado.');
+      return null;
+    }
+
+    if (!clientId && canSubmitWithNewClient && opts?.createClient) {
+      setErrorInvoice('');
+      try {
+        const created = await clientsApi.create(companyId, clientForm) as { id: string };
+        clientId = created.id;
+        setSelectedClientId(created.id);
+      } catch (e) {
+        setErrorInvoice(e instanceof Error ? e.message : 'Error al crear cliente');
+        return null;
+      }
+    }
+
+    if (items.length === 0) { setErrorInvoice('Agrega al menos un producto.'); return null; }
+    if (items.some((i) => !i.quantity || i.quantity <= 0)) {
+      setErrorInvoice('Todas las cantidades de producto deben ser mayores a 0.');
+      return null;
+    }
+    const noStockItems = items.filter((i) => !i.isService && i.stock != null && (i.quantity ?? 0) > i.stock);
+    if (noStockItems.length > 0) {
+      setErrorInvoice('Los productos resaltados en rojo no tienen stock disponible. Ajusta las cantidades o quítalos de la factura.');
+      return null;
+    }
+    const invFieldConfig = config?.invoiceFieldsConfig ?? {};
+    const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
+    if (invVisible('title') && !title.trim()) { setErrorInvoice('Título es obligatorio.'); return null; }
+    if (invVisible('rateOfDay')) {
+      const companyBase = getDefaultCurrencyFromConfig(config) ?? 'USD';
+      const invoiceHasOtherThanBase = currencies.some((c) => c !== companyBase);
+      const hasRate = !!rateOfDay.trim() && !isNaN(Number(rateOfDay));
+      const hasConfigRate = config?.usdRate != null || config?.eurRate != null;
+      if (invoiceHasOtherThanBase && !hasRate && !hasConfigRate) {
+        setErrorInvoice('Tasa del día es obligatoria cuando se selecciona una moneda distinta a la de la configuración de la empresa.');
+        return null;
+      }
+    }
+
+    // En pre-validación (sin crear cliente aún) permitimos continuar con placeholder.
+    if (!clientId && canSubmitWithNewClient && !opts?.createClient) {
+      return { clientId: '__pending_new_client__' };
+    }
+    if (!clientId) {
+      setErrorInvoice('Cliente es obligatorio. Busca por RIF/Cédula o completa los datos si no está registrado.');
+      return null;
+    }
+    return { clientId };
+  };
+
+  const handleOpenArModal = async () => {
+    const ok = await validateInvoiceFormForSave({ createClient: false });
+    if (!ok) return;
+    setErrorInvoice('');
+    setArDueDateModal({ dueDate: '' });
+  };
+
+  const handleCreateAsReceivable = async () => {
+    if (!companyId || !arDueDateModal?.dueDate) {
+      setErrorInvoice('Indica la fecha de vencimiento de la cuenta por cobrar.');
+      return;
+    }
+    setSavingInvoice(true);
+    const validated = await validateInvoiceFormForSave({ createClient: true });
+    if (!validated || validated.clientId.startsWith('__')) {
+      setSavingInvoice(false);
+      return;
+    }
+
+    const invFieldConfig = config?.invoiceFieldsConfig ?? {};
+    const invVisible = (key: string) => invFieldConfig[key]?.visible !== false;
+    const foreign = currencies.find((c) => c === 'USD' || c === 'EUR') ?? null;
+    let effectiveRate: number | null = null;
+    if (invVisible('rateOfDay')) {
+      if (rateOfDay.trim() && !isNaN(Number(rateOfDay))) effectiveRate = Number(rateOfDay);
+      else if (foreign === 'USD' && config?.usdRate != null) effectiveRate = Number(config.usdRate);
+      else if (foreign === 'EUR' && config?.eurRate != null) effectiveRate = Number(config.eurRate);
+    } else {
+      if (config?.usdRate != null) effectiveRate = Number(config.usdRate);
+      else if (config?.eurRate != null) effectiveRate = Number(config.eurRate);
+      else effectiveRate = 1;
+    }
+
+    const subSinIva = items.filter((i) => i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+    const subConIva = items.filter((i) => !i.exentoIva).reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
+    const ivaAmount = (subConIva * ivaPercent) / 100;
+    const totalAmount = subSinIva + subConIva + ivaAmount;
+    const arCurrency = getDefaultCurrencyFromConfig(config) ?? 'BS';
+
+    setErrorInvoice('');
+    try {
+      const created = await invoicesApi.create(companyId, {
+        title: (invVisible('title') ? title.trim() : '') || 'Factura',
+        clientId: validated.clientId,
+        date,
+        ivaPercent,
+        rateOfDay: effectiveRate ?? 1,
+        currencies,
+        observations: invVisible('observations') ? observations.trim() || undefined : undefined,
+        priority: invVisible('priority') ? priority : 'NORMAL',
+        paymentMethods: invVisible('paymentMethods') ? paymentMethods : [],
+        deliveryTime: invVisible('deliveryTime') ? deliveryTime.trim() || undefined : undefined,
+        validity: invVisible('validity') ? validity.trim() || undefined : undefined,
+        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice, sortOrder: i.sortOrder, exentoIva: i.exentoIva })),
+        createOrder,
+      }) as { id: string; correlative: string };
+
+      await accountsReceivableApi.create(companyId, {
+        clientId: validated.clientId,
+        invoiceNumber: created.correlative,
+        amount: totalAmount,
+        currency: arCurrency,
+        dueDate: arDueDateModal.dueDate,
+        invoiceId: created.id,
+      });
+
+      setArDueDateModal(null);
+      setTitle(''); setClientRif(''); setClientSearchResult(null); setSelectedClientId(null);
+      setItems([]); setRateOfDay(''); setObservations(''); setPaymentMethods([]); setDeliveryTime(''); setValidity('');
+      setSavedInvoiceModal({ invoiceId: created.id });
+    } catch (e) {
+      setErrorInvoice(e instanceof Error ? e.message : 'Error al crear factura / cuenta por cobrar');
+    } finally {
+      setSavingInvoice(false);
+    }
+  };
+
   const performCreateInvoice = async () => {
     if (!companyId || !selectedClientId || !paymentBreakdownModal) return;
     if (items.some((i) => !i.quantity || i.quantity <= 0)) {
@@ -1459,6 +1593,14 @@ export default function FacturacionPage() {
                 <button type="button" onClick={handleSubmitInvoice} disabled={savingInvoice || !hasValidClient || items.length === 0} className="rounded-lg bg-[var(--primary)] text-white px-6 py-2 font-medium disabled:opacity-50">{savingInvoice ? 'Guardando...' : 'Guardar factura'}</button>
                 <div className="flex items-center gap-2">
                   {draftSavedMessage && <span className="text-sm text-[var(--primary)]">Borrador guardado</span>}
+                  <button
+                    type="button"
+                    onClick={handleOpenArModal}
+                    disabled={savingInvoice || !hasValidClient || items.length === 0}
+                    className="rounded-lg bg-[var(--card)] border border-[var(--primary)]/40 px-3 py-1.5 text-sm text-[var(--primary)] hover:bg-[var(--primary)]/10 disabled:opacity-50"
+                  >
+                    Cuenta por cobrar
+                  </button>
                   <button type="button" onClick={handleSaveDraft} className="rounded-lg bg-[var(--card)] border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--card-hover)]">Guardar borrador</button>
                 </div>
               </div>
@@ -1573,6 +1715,43 @@ export default function FacturacionPage() {
                   ))}
                 </ul>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: fecha de vencimiento para cuenta por cobrar */}
+      {arDueDateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true">
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-semibold text-[var(--foreground)] text-lg mb-2">Cuenta por cobrar</h2>
+            <p className="text-sm text-[var(--muted)] mb-4">
+              Se guardará la factura y se registrará como cuenta por cobrar. Indica la fecha de vencimiento.
+            </p>
+            <label className="block text-sm text-[var(--muted)] mb-1">Fecha de vencimiento</label>
+            <input
+              type="date"
+              value={arDueDateModal.dueDate}
+              onChange={(e) => setArDueDateModal({ dueDate: e.target.value })}
+              className="w-full rounded-lg bg-[var(--background)] border border-[var(--border)] px-3 py-2 mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setArDueDateModal(null)}
+                disabled={savingInvoice}
+                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateAsReceivable}
+                disabled={savingInvoice || !arDueDateModal.dueDate}
+                className="rounded-lg bg-[var(--primary)] text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+              >
+                {savingInvoice ? 'Guardando…' : 'Confirmar'}
+              </button>
             </div>
           </div>
         </div>

@@ -24,6 +24,8 @@ function getModuleKeyFromPath(pathname: string): string | null {
     'ordenes': 'ORDENES',
     'cierres-caja': 'CIERRE_CAJA',
     'inventario': 'INVENTARIO',
+    'cuentas-por-cobrar': 'CUENTAS_POR_COBRAR',
+    'cuentas-por-pagar': 'CUENTAS_POR_PAGAR',
     'administracion': 'ADMINISTRACION',
     'logs': 'LOGS',
   };

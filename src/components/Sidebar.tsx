@@ -31,6 +31,8 @@ const MODULES: { key: string; label: string; href: string; superAdminOnly?: bool
   { key: 'ORDENES', label: 'Órdenes', href: '/dashboard/ordenes' },
   { key: 'CIERRE_CAJA', label: 'Cierres de caja', href: '/dashboard/cierres-caja' },
   { key: 'INVENTARIO', label: 'Inventario', href: '/dashboard/inventario' },
+  { key: 'CUENTAS_POR_COBRAR', label: 'Cuentas por cobrar', href: '/dashboard/cuentas-por-cobrar' },
+  { key: 'CUENTAS_POR_PAGAR', label: 'Cuentas por pagar', href: '/dashboard/cuentas-por-pagar' },
   { key: 'ADMINISTRACION', label: 'Administración', href: '/dashboard/administracion' },
   { key: 'LOGS', label: 'Logs', href: '/dashboard/logs' },
 ];

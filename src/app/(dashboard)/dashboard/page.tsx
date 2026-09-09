@@ -16,7 +16,9 @@ const MODULES: { key: string; label: string; href: string; desc: string; superAd
   { key: 'ORDENES', label: 'Órdenes', href: '/dashboard/ordenes', desc: 'Órdenes pendientes generadas desde facturas' },
   { key: 'CIERRE_CAJA', label: 'Cierres de caja', href: '/dashboard/cierres-caja', desc: 'Registrar y consultar cierres de caja' },
   { key: 'INVENTARIO', label: 'Inventario', href: '/dashboard/inventario', desc: 'Productos, ingresos y egresos' },
-  { key: 'ADMINISTRACION', label: 'Administración', href: '/dashboard/administracion', desc: 'Resumen e indicadores' },
+  { key: 'CUENTAS_POR_COBRAR', label: 'Cuentas por cobrar', href: '/dashboard/cuentas-por-cobrar', desc: 'Registrar y cobrar cuentas pendientes' },
+  { key: 'CUENTAS_POR_PAGAR', label: 'Cuentas por pagar', href: '/dashboard/cuentas-por-pagar', desc: 'Registrar y pagar obligaciones' },
+  { key: 'ADMINISTRACION', label: 'Administración', href: '/dashboard/administracion', desc: 'Balances e indicadores financieros' },
   { key: 'LOGS', label: 'Logs', href: '/dashboard/logs', desc: 'Registro de acciones del sistema' },
 ];
 

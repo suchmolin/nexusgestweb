@@ -202,9 +202,84 @@ export const logsApi = {
     }),
 };
 
+export const accountsReceivableApi = {
+  list: (companyId: string, filters?: Record<string, string | number>) =>
+    api<{ items: unknown[]; total: number; page: number; limit: number }>('/accounts-receivable', {
+      params: { companyId, ...(filters as Record<string, string>) },
+    }),
+  create: (companyId: string, data: Record<string, unknown>) =>
+    api<unknown>('/accounts-receivable', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  markPaid: (id: string, companyId: string) =>
+    api<unknown>(`/accounts-receivable/${id}/mark-paid`, { method: 'PATCH', params: { companyId } }),
+};
+
+export const accountsPayableApi = {
+  list: (companyId: string, filters?: Record<string, string | number>) =>
+    api<{ items: unknown[]; total: number; page: number; limit: number }>('/accounts-payable', {
+      params: { companyId, ...(filters as Record<string, string>) },
+    }),
+  create: (companyId: string, data: Record<string, unknown>) =>
+    api<unknown>('/accounts-payable', { method: 'POST', body: JSON.stringify(data), params: { companyId } }),
+  markPaid: (id: string, companyId: string) =>
+    api<unknown>(`/accounts-payable/${id}/mark-paid`, { method: 'PATCH', params: { companyId } }),
+};
+
+export type AdminStats = {
+  ingresosCount: number;
+  ingresosTotalCost: number;
+  facturacionCount: number;
+  facturacionTotal: number;
+  balance: number;
+  from?: string | null;
+  to?: string | null;
+  inventario?: {
+    ingresosCount: number;
+    ingresosTotalCost: number;
+    egresosCount: number;
+    egresosTotalCost: number;
+  };
+  facturacion?: {
+    count: number;
+    subtotal: number;
+    iva: number;
+    total: number;
+  };
+  cuentasPorCobrar?: {
+    pagadasCount: number;
+    pagadasTotal: number;
+    pendientesCount: number;
+    pendientesTotal: number;
+    vencidasCount: number;
+    vencidasTotal: number;
+    abiertasTotal: number;
+  };
+  cuentasPorPagar?: {
+    pagadasCount: number;
+    pagadasTotal: number;
+    pagadasTotalBs: number;
+    pendientesCount: number;
+    pendientesTotal: number;
+    vencidasCount: number;
+    vencidasTotal: number;
+    abiertasTotal: number;
+  };
+  balances?: {
+    inventarioFacturacion: number;
+    cuentasAbiertas: number;
+    flujoCuentas: number;
+    general: number;
+  };
+};
+
 export const adminApi = {
-  stats: (companyId: string) =>
-    api<{ ingresosCount: number; ingresosTotalCost: number; facturacionCount: number; facturacionTotal: number; balance: number }>('/admin/stats', { params: { companyId } }),
+  stats: (companyId: string, filters?: { from?: string; to?: string }) =>
+    api<AdminStats>('/admin/stats', {
+      params: {
+        companyId,
+        ...(filters?.from && { from: filters.from }),
+        ...(filters?.to && { to: filters.to }),
+      },
+    }),
 };
 
 /** Sube una imagen a Vercel Blob. Devuelve la URL para guardar en BD. Requiere estar logueado. */
