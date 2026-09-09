@@ -165,13 +165,13 @@ export default function UsuariosPage() {
   };
 
   const canManageActions = (row: CompanyUser) => {
-    if (row.id === user?.sub) return false;
+    if (row.id === user?.id) return false;
     if (row.role === 'ADMIN') return isSuperAdmin;
     return row.role === 'VENDEDOR' || row.role === 'SUPERVISOR';
   };
 
   const canDelete = (row: CompanyUser) => {
-    if (row.id === user?.sub) return false;
+    if (row.id === user?.id) return false;
     return row.role === 'VENDEDOR' || row.role === 'SUPERVISOR';
   };
 
@@ -367,7 +367,7 @@ export default function UsuariosPage() {
                       <tr key={row.id} className="border-t border-[var(--border)]">
                         <td className="p-3">
                           {row.username}
-                          {row.id === user.sub && (
+                          {row.id === user.id && (
                             <span className="ml-2 text-xs text-[var(--muted)]">(tú)</span>
                           )}
                         </td>
